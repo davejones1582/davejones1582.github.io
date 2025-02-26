@@ -5,9 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="theme-color" content="#1a1a1a">
+    <meta name="theme-color" content="#121212">
     <title>Reddit Video Gallery</title>
     <link rel="stylesheet" href="./styles/main.css">
+    <link rel="manifest" href="./manifest.json">
+    <link rel="icon" type="image/png" href="./icons/icon-192x192.png">
+    <link rel="apple-touch-icon" href="./icons/icon-192x192.png">
 </head>
 <body>
     <header>
@@ -18,6 +21,7 @@
                 <button id="favorites-toggle" class="icon-button" aria-label="Show favorites">⭐</button>
                 <button id="grid-size-toggle" class="icon-button" aria-label="Toggle grid size">▦</button>
                 <button id="defaults-button" class="icon-button" aria-label="Load defaults" onclick="loadDefaultSubreddits()">🔄</button>
+                <!-- Theme toggle button will be added by JavaScript -->
             </div>
         </div>
         
@@ -50,8 +54,6 @@
 
     <div class="video-grid" id="video-grid"></div>
 
-    <!-- Floating button removed -->
-
     <div class="lightbox" id="lightbox" onclick="closeLightbox()">
         <div class="lightbox-content" onclick="event.stopPropagation()">
             <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
@@ -63,5 +65,10 @@
     </div>
 
     <script src="./scripts/app.js"></script>
+    <noscript>
+        <div style="text-align: center; padding: 20px; color: #ff3b30;">
+            This application requires JavaScript to run. Please enable JavaScript in your browser.
+        </div>
+    </noscript>
 </body>
 </html>

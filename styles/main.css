@@ -1,3 +1,4 @@
+/* Theme variables */
 :root {
     --bg-color: #121212;
     --surface-color: #1e1e1e;
@@ -7,12 +8,28 @@
     --error-color: #ff3b30;
 }
 
+[data-theme="light"] {
+    --bg-color: #f5f5f5;
+    --surface-color: #ffffff;
+    --primary-color: #0070e0;
+    --text-color: #333333;
+    --text-secondary: #666666;
+    --error-color: #d00000;
+}
+
 body {
     margin: 0;
     padding: 0;
     background-color: var(--bg-color);
     color: var(--text-color);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Theme transition */
+body, button, input, .video-card, .subreddit-tag, 
+.icon-button, .sort-button, .thumbnail-container, 
+.lightbox, .metadata, .lightbox-content {
+    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
 }
 
 /* Header and search */
@@ -65,6 +82,11 @@ header {
 .icon-button:hover, .icon-button.active {
     opacity: 1;
     background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Theme toggle button specific styles */
+#theme-toggle {
+    font-size: 18px;
 }
 
 .sort-controls {
@@ -165,6 +187,10 @@ header {
     transform: translateY(-4px);
 }
 
+[data-theme="light"] .video-card {
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
 .thumbnail-container {
     position: relative;
     width: 100%;
@@ -250,19 +276,18 @@ header {
     background-color: rgba(255, 255, 255, 0.1);
 }
 
-.subreddit-tag .remove-tag {
-    display: none;
-    margin-left: 6px;
+.subreddit-name {
+    padding-right: 4px;
+}
+
+.remove-tag {
     opacity: 0.7;
     font-size: 16px;
+    margin-left: 6px;
     transition: opacity 0.2s;
 }
 
 .subreddit-tag:hover .remove-tag {
-    display: inline-block;
-}
-
-.subreddit-tag .remove-tag:hover {
     opacity: 1;
 }
 
@@ -302,6 +327,11 @@ header {
     font-size: 20px;
 }
 
+[data-theme="light"] .play-icon {
+    background-color: rgba(255, 255, 255, 0.7);
+    color: #333333;
+}
+
 /* Favorite button */
 .favorite-button {
     position: absolute;
@@ -331,6 +361,42 @@ header {
     opacity: 1;
 }
 
+/* Manual play button when autoplay fails */
+.manual-play-button {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 60px;
+    height: 60px;
+    background-color: rgba(0, 0, 0, 0.6);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: white;
+    font-size: 24px;
+    z-index: 10;
+}
+
+.manual-play-button:hover {
+    background-color: rgba(0, 0, 0, 0.8);
+}
+
+/* Error message for failed media */
+.media-error-message {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background-color: rgba(255, 0, 0, 0.7);
+    color: white;
+    padding: 8px;
+    text-align: center;
+    cursor: pointer;
+}
+
 /* Lightbox */
 .lightbox {
     display: none;
@@ -343,6 +409,10 @@ header {
     z-index: 1000;
     justify-content: center;
     align-items: center;
+}
+
+[data-theme="light"] .lightbox {
+    background-color: rgba(255, 255, 255, 0.95);
 }
 
 .lightbox-content {
@@ -377,6 +447,12 @@ header {
 
 .lightbox-close:hover {
     opacity: 1;
+}
+
+[data-theme="light"] .lightbox-close,
+[data-theme="light"] .lightbox-nav,
+[data-theme="light"] .lightbox-metadata {
+    color: #333333;
 }
 
 .lightbox-metadata {
@@ -475,16 +551,23 @@ header {
     }
     
     .lightbox-nav {
+        width: 60px;
+        height: 60px;
+        background-color: rgba(0, 0, 0, 0.3);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         font-size: 28px;
         padding: 15px;
     }
     
     .lightbox-prev {
-        left: -10px;
+        left: 10px;
     }
     
     .lightbox-next {
-        right: -10px;
+        right: 10px;
     }
     
     .lightbox-close {

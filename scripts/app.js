@@ -29,6 +29,7 @@ let observer;
 let isMuted = true;
 let currentVideoIframe = null;
 let currentVideoElement = null;
+let currentTheme = 'dark'; // Default theme
 
 // Error handling
 function showError(message) {
@@ -181,6 +182,49 @@ function toggleSound() {
     }
 }
 
+// Theme management
+function initThemeToggle() {
+    // Create theme toggle button
+    const headerButtons = document.querySelector('.header-buttons');
+    const themeToggle = document.createElement('button');
+    themeToggle.id = 'theme-toggle';
+    themeToggle.className = 'icon-button';
+    themeToggle.setAttribute('aria-label', 'Toggle theme');
+    themeToggle.textContent = '☀️'; // Sun icon for dark mode (indicates switching to light)
+    
+    // Load saved theme preference
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme) {
+        currentTheme = savedTheme;
+        applyTheme(currentTheme);
+    }
+    
+    // Update button text based on current theme
+    updateThemeButton(themeToggle);
+    
+    // Add click listener
+    themeToggle.addEventListener('click', toggleTheme);
+    
+    // Add to DOM
+    headerButtons.appendChild(themeToggle);
+}
+
+function updateThemeButton(button) {
+    if (!button) button = document.getElementById('theme-toggle');
+    button.textContent = currentTheme === 'dark' ? '☀️' : '🌙';
+}
+
+function toggleTheme() {
+    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    applyTheme(currentTheme);
+    updateThemeButton();
+    localStorage.setItem('theme', currentTheme);
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+}
+
 // Favorites functionality
 function loadFavorites() {
     try {
@@ -210,9 +254,10 @@ function toggleFavorites() {
     const favBtn = document.getElementById('favorites-toggle');
     favBtn.classList.toggle('active', showingFavorites);
     
-    // Disconnect infinite scroll observer when showing favorites
+    // Always disconnect observer when changing views
     if (observer) {
         observer.disconnect();
+        observer = null;
     }
     
     if (showingFavorites) {
@@ -299,6 +344,7 @@ function showLightbox(item) {
                 video.controls = true;
                 video.autoplay = true;
                 video.muted = isMuted;
+                video.playsInline = true; // Fix for iOS
                 
                 // If there's an audio track
                 if (item.audioUrl) {
@@ -309,14 +355,24 @@ function showLightbox(item) {
                     audio.controls = false;
                     audio.muted = isMuted;
                     
-                    // Sync audio with video
+                    // Improved audio-video sync
                     video.onplay = () => {
                         audio.currentTime = video.currentTime;
-                        audio.play().catch(e => console.error("Audio play failed:", e));
+                        audio.play().catch(e => {
+                            console.error("Audio play failed:", e);
+                            // Fallback: try playing after user interaction
+                            container.addEventListener('click', () => {
+                                audio.play().catch(err => console.error("Audio play after click failed:", err));
+                            }, { once: true });
+                        });
                     };
                     
                     video.onpause = () => audio.pause();
-                    video.onseeked = () => { audio.currentTime = video.currentTime; };
+                    video.onseeked = () => { 
+                        audio.currentTime = video.currentTime;
+                        // Fix for seeking when paused
+                        if (!video.paused) audio.play().catch(e => console.error("Audio play failed after seek:", e));
+                    };
                     
                     // Add audio element
                     container.appendChild(audio);
@@ -325,24 +381,65 @@ function showLightbox(item) {
                 video.src = item.fallbackUrl;
                 container.appendChild(video);
                 
-                video.play().catch(e => console.error("Video play failed:", e));
+                video.play().catch(e => {
+                    console.error("Video play failed:", e);
+                    // Show a play button overlay when autoplay fails
+                    const playButton = document.createElement('div');
+                    playButton.className = 'manual-play-button';
+                    playButton.innerHTML = '▶';
+                    playButton.addEventListener('click', () => {
+                        video.play().catch(err => console.error("Manual play failed:", err));
+                        playButton.style.display = 'none';
+                    });
+                    container.appendChild(playButton);
+                });
                 currentVideoElement = video;
             } else {
                 // Embedded video (YouTube, Redgifs, etc)
                 let videoUrl;
                 
                 try {
-                    videoUrl = new URL(item.url);
+                    // Fix malformed URLs first
+                    let urlString = item.url;
+                    if (!urlString.startsWith('http')) {
+                        urlString = 'https://' + urlString;
+                    }
+                    
+                    videoUrl = new URL(urlString);
                     
                     // Handle different video services
-                    if (item.url.includes('youtube.com') || item.url.includes('youtu.be')) {
-                        // Ensure YouTube parameters are properly set
-                        videoUrl.searchParams.set('autoplay', '1');
-                        videoUrl.searchParams.set('mute', isMuted ? '1' : '0');
-                    } else if (item.url.includes('redgifs.com')) {
+                    if (urlString.includes('youtube.com') || urlString.includes('youtu.be')) {
+                        // Extract videoId more robustly
+                        let videoId = null;
+                        
+                        if (urlString.includes('youtu.be')) {
+                            // youtu.be/VIDEO_ID format
+                            const pathParts = videoUrl.pathname.split('/').filter(p => p);
+                            if (pathParts.length > 0) {
+                                videoId = pathParts[0];
+                            }
+                        } else if (urlString.includes('youtube.com')) {
+                            // youtube.com/watch?v=VIDEO_ID format
+                            videoId = videoUrl.searchParams.get('v');
+                            
+                            // Handle youtube.com/embed/VIDEO_ID format
+                            if (!videoId && urlString.includes('/embed/')) {
+                                const pathParts = videoUrl.pathname.split('/').filter(p => p);
+                                if (pathParts.length > 1 && pathParts[0] === 'embed') {
+                                    videoId = pathParts[1];
+                                }
+                            }
+                        }
+                        
+                        if (videoId) {
+                            videoUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=${isMuted ? '1' : '0'}`;
+                        } else {
+                            // Fallback if we can't parse the ID
+                            videoUrl = item.url;
+                        }
+                    } else if (urlString.includes('redgifs.com')) {
                         // RedGifs handling
-                        videoUrl.searchParams.set('autoplay', '1');
-                        videoUrl.searchParams.set('muted', isMuted ? '1' : '0');
+                        videoUrl = getRedgifsEmbedUrl(item.url);
                     }
                 } catch (e) {
                     console.error("URL parsing error:", e);
@@ -365,6 +462,15 @@ function showLightbox(item) {
             img.className = 'lightbox-image';
             img.src = item.thumbnail;
             container.appendChild(img);
+            
+            // Add error message
+            const errorMsg = document.createElement('div');
+            errorMsg.className = 'media-error-message';
+            errorMsg.textContent = 'Could not load video. Click to view on Reddit.';
+            errorMsg.addEventListener('click', () => {
+                window.open(`https://reddit.com${item.permalink}`, '_blank');
+            });
+            container.appendChild(errorMsg);
         }
     } else {
         // Image
@@ -390,9 +496,16 @@ function showLightbox(item) {
     `;
 
     document.getElementById('lightbox').style.display = 'flex';
+    
+    // Clean up existing event listeners before adding new ones
+    document.removeEventListener('keydown', handleKeyDown);
     document.addEventListener('keydown', handleKeyDown);
-    document.getElementById('lightbox').addEventListener('touchstart', handleTouchStart);
-    document.getElementById('lightbox').addEventListener('touchend', handleTouchEnd);
+    
+    const lightbox = document.getElementById('lightbox');
+    lightbox.removeEventListener('touchstart', handleTouchStart);
+    lightbox.removeEventListener('touchend', handleTouchEnd);
+    lightbox.addEventListener('touchstart', handleTouchStart);
+    lightbox.addEventListener('touchend', handleTouchEnd);
 }
 
 function closeLightbox() {
@@ -406,9 +519,12 @@ function closeLightbox() {
     
     // Hide lightbox
     document.getElementById('lightbox').style.display = 'none';
+    
+    // Clean up event listeners
     document.removeEventListener('keydown', handleKeyDown);
-    document.getElementById('lightbox').removeEventListener('touchstart', handleTouchStart);
-    document.getElementById('lightbox').removeEventListener('touchend', handleTouchEnd);
+    const lightbox = document.getElementById('lightbox');
+    lightbox.removeEventListener('touchstart', handleTouchStart);
+    lightbox.removeEventListener('touchend', handleTouchEnd);
 }
 
 // Settings management
@@ -529,10 +645,15 @@ async function fetchRedditVideos() {
         const response = await fetch(url);
         
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(`HTTP error! status: ${response.status}, statusText: ${response.statusText}`);
         }
 
         const data = await response.json();
+        
+        // Validate response structure
+        if (!data || !data.data || !Array.isArray(data.data.children)) {
+            throw new Error('Invalid response format from Reddit API');
+        }
         
         // Update pagination state
         afterToken = data.data.after;
@@ -541,6 +662,8 @@ async function fetchRedditVideos() {
         // Filter for videos and images
         const newVideos = data.data.children
             .filter(post => {
+                if (!post || !post.data) return false;
+                
                 // Keep videos and GIFs
                 return (
                     // Native Reddit videos
@@ -573,26 +696,8 @@ async function fetchRedditVideos() {
                 } else if (isRedgifs) {
                     videoUrl = getRedgifsEmbedUrl(data.url);
                 } else if (isYouTube) {
-                    // Extract video ID from YouTube URL
-                    let videoId;
-                    if (data.url.includes('youtu.be')) {
-                        videoId = data.url.split('/').pop();
-                    } else {
-                        try {
-                            const urlParams = new URLSearchParams(new URL(data.url).search);
-                            videoId = urlParams.get('v');
-                        } catch (e) {
-                            // Handle malformed URLs
-                            console.error("Failed to parse YouTube URL:", e);
-                            videoId = null;
-                        }
-                    }
-                    
-                    if (videoId) {
-                        videoUrl = `https://www.youtube.com/embed/${videoId}?autoplay=0&mute=${isMuted ? '1' : '0'}`;
-                    } else {
-                        videoUrl = data.url;
-                    }
+                    // Extract video ID is now handled in showLightbox
+                    videoUrl = data.url;
                 } else if (data.secure_media && data.secure_media.oembed) {
                     // Extract iframe src if available
                     const html = data.secure_media.oembed.html;
@@ -650,6 +755,16 @@ async function fetchRedditVideos() {
         showError(`Failed to load content: ${error.message}`);
         hideLoading();
         isLoading = false;
+        hasMore = false; // Prevent continuous retries on error
+        
+        // Try again after a delay if it might be a temporary issue
+        if (error.message.includes('HTTP error') || error.message.includes('Failed to fetch')) {
+            setTimeout(() => {
+                hasMore = true; // Re-enable fetching
+                loadMoreVideos();
+            }, 5000); // Try again after 5 seconds
+        }
+        
         return [];
     }
 }
@@ -831,6 +946,7 @@ function initObserver() {
     // If we already have an observer, disconnect it first
     if (observer) {
         observer.disconnect();
+        observer = null;
     }
     
     // Don't initialize observer when showing favorites
@@ -893,9 +1009,13 @@ function renderSubredditTags() {
         // Create the name span
         const nameSpan = document.createElement('span');
         nameSpan.textContent = `r/${sub}`;
+        nameSpan.className = 'subreddit-name';
+        nameSpan.addEventListener('click', () => {
+            toggleActiveSubreddit(sub);
+        });
         tag.appendChild(nameSpan);
         
-        // Create the remove button
+        // Create the remove button - always visible for touch devices
         const removeBtn = document.createElement('span');
         removeBtn.className = 'remove-tag';
         removeBtn.textContent = '×';
@@ -904,10 +1024,6 @@ function renderSubredditTags() {
             removeSubreddit(sub);
         });
         tag.appendChild(removeBtn);
-        
-        tag.addEventListener('click', () => {
-            toggleActiveSubreddit(sub);
-        });
         
         container.appendChild(tag);
     });
@@ -960,6 +1076,21 @@ function removeSubreddit(name) {
     
     renderSubredditTags();
     refreshContent();
+}
+
+// Service worker registration for offline capabilities
+function registerServiceWorker() {
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then(registration => {
+                    console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                })
+                .catch(error => {
+                    console.log('ServiceWorker registration failed: ', error);
+                });
+        });
+    }
 }
 
 // Set up event listeners
@@ -1022,6 +1153,9 @@ function initializeApp() {
     // Initialize event listeners
     initEventListeners();
     
+    // Initialize theme toggle
+    initThemeToggle();
+    
     // Initialize infinite scroll
     initObserver();
     
@@ -1054,6 +1188,9 @@ function initializeApp() {
     if (videoGrid && currentSettings.compactView) {
         videoGrid.classList.add('compact');
     }
+    
+    // Register service worker (uncomment when ready to use)
+    // registerServiceWorker();
 }
 
 // Start the application
