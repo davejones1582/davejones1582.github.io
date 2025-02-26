@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="80" fill="#121212"/>
+  
+  <!-- Film strip -->
+  <rect x="96" y="76" width="320" height="360" rx="8" fill="#007aff" opacity="0.9"/>
+  
+  <!-- Film perforations left -->
+  <circle cx="136" cy="116" r="16" fill="#121212"/>
+  <circle cx="136" cy="176" r="16" fill="#121212"/>
+  <circle cx="136" cy="236" r="16" fill="#121212"/>
+  <circle cx="136" cy="296" r="16" fill="#121212"/>
+  <circle cx="136" cy="356" r="16" fill="#121212"/>
+  
+  <!-- Film perforations right -->
+  <circle cx="376" cy="116" r="16" fill="#121212"/>
+  <circle cx="376" cy="176" r="16" fill="#121212"/>
+  <circle cx="376" cy="236" r="16" fill="#121212"/>
+  <circle cx="376" cy="296" r="16" fill="#121212"/>
+  <circle cx="376" cy="356" r="16" fill="#121212"/>
+  
+  <!-- Film frames -->
+  <rect x="176" y="96" width="160" height="80" rx="4" fill="#f0f0f0" opacity="0.9"/>
+  <rect x="176" y="196" width="160" height="80" rx="4" fill="#f0f0f0" opacity="0.9"/>
+  <rect x="176" y="296" width="160" height="80" rx="4" fill="#f0f0f0" opacity="0.9"/>
+</svg>
