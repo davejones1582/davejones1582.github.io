@@ -51,7 +51,7 @@ function createVideoIframe(url, isMuted) {
             }
             
             if (videoId) {
-                videoUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=${isMuted ? '1' : '0'}&playsinline=1`;
+                videoUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=${isMuted ? '1' : '0'}`;
             } else {
                 // Fallback if we can't parse the ID
                 videoUrl = url;
@@ -101,12 +101,6 @@ function createRedditVideo(videoUrl, audioUrl, isMuted, container) {
     video.muted = isMuted;
     video.playsInline = true; // Fix for iOS
     
-    // Clean up any existing audio elements
-    const existingAudio = container.querySelector('audio');
-    if (existingAudio) {
-        existingAudio.remove();
-    }
-    
     // If there's an audio track
     if (audioUrl) {
         // Create audio element for sound
@@ -115,79 +109,30 @@ function createRedditVideo(videoUrl, audioUrl, isMuted, container) {
         audio.autoplay = true;
         audio.controls = false;
         audio.muted = isMuted;
-        audio.preload = 'auto';
-        audio.style.display = 'none';
         
         // Improved audio-video sync
-        let audioSyncAttempts = 0;
-        
-        // Handle video play event
         video.onplay = () => {
             audio.currentTime = video.currentTime;
-            const playPromise = audio.play();
-            
-            if (playPromise !== undefined) {
-                playPromise.catch(e => {
-                    console.error("Audio play failed:", e);
-                    audioSyncAttempts++;
-                    
-                    // After a few failures, try a different approach
-                    if (audioSyncAttempts <= 3) {
-                        // Try again with a delay
-                        setTimeout(() => {
-                            audio.currentTime = video.currentTime;
-                            audio.play().catch(err => console.error("Delayed audio play failed:", err));
-                        }, 500);
-                    } else {
-                        // Fallback: try playing after user interaction
-                        const playButton = document.createElement('div');
-                        playButton.className = 'manual-play-button';
-                        playButton.innerHTML = '🔊';
-                        playButton.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-                        playButton.title = 'Enable Sound';
-                        
-                        playButton.onclick = (e) => {
-                            e.stopPropagation();
-                            audio.muted = false;
-                            video.muted = false;
-                            audio.currentTime = video.currentTime;
-                            audio.play().catch(err => console.error("Audio play after click failed:", err));
-                            playButton.remove();
-                        };
-                        
-                        container.appendChild(playButton);
-                    }
-                });
-            }
+            audio.play().catch(e => {
+                console.error("Audio play failed:", e);
+                // Fallback: try playing after user interaction
+                container.addEventListener('click', () => {
+                    audio.play().catch(err => console.error("Audio play after click failed:", err));
+                }, { once: true });
+            });
         };
         
-        // Sync audio with video
         video.onpause = () => audio.pause();
-        
         video.onseeked = () => { 
             audio.currentTime = video.currentTime;
             // Fix for seeking when paused
-            if (!video.paused) {
-                audio.play().catch(e => console.error("Audio play failed after seek:", e));
-            }
+            if (!video.paused) audio.play().catch(e => console.error("Audio play failed after seek:", e));
         };
-        
-        // Handle time updates for better sync
-        video.ontimeupdate = () => {
-            // Only sync if the difference is significant
-            if (Math.abs(video.currentTime - audio.currentTime) > 0.3) {
-                audio.currentTime = video.currentTime;
-            }
-        };
-        
-        // Handle ended event
-        video.onended = () => audio.pause();
         
         // Add audio element
         container.appendChild(audio);
     }
     
-    // Set source after attaching event handlers
     video.src = videoUrl;
     
     return video;
@@ -202,21 +147,26 @@ function updateMuteState(isMuted) {
     // Handle iframe videos
     if (currentVideoIframe) {
         try {
-            const currentSrc = currentVideoIframe.src;
-            const urlObj = new URL(currentSrc);
-            
-            if (currentSrc.includes('redgifs.com')) {
+            if (currentVideoIframe.src.includes('redgifs.com')) {
                 // For Redgifs, we need to recreate the iframe with new parameters
+                const currentSrc = currentVideoIframe.src;
+                const urlObj = new URL(currentSrc);
                 const redgifsId = urlObj.pathname.split('/').pop();
+                
+                // Create new URL with updated mute parameter
                 currentVideoIframe.src = `https://www.redgifs.com/ifr/${redgifsId}?autoplay=1&muted=${isMuted ? '1' : '0'}&controls=1`;
-            } else if (currentSrc.includes('youtube.com')) {
-                // YouTube uses 'mute' parameter
-                urlObj.searchParams.set('mute', isMuted ? '1' : '0');
-                currentVideoIframe.src = urlObj.toString();
             } else {
-                // Other services generally use 'muted'
-                urlObj.searchParams.set('muted', isMuted ? '1' : '0');
-                currentVideoIframe.src = urlObj.toString();
+                // Handle other iframe types
+                const src = new URL(currentVideoIframe.src);
+                
+                // Different services have different parameter names
+                if (src.href.includes('youtube.com')) {
+                    src.searchParams.set('mute', isMuted ? '1' : '0');
+                } else {
+                    src.searchParams.set('muted', isMuted ? '1' : '0');
+                }
+                
+                currentVideoIframe.src = src.href;
             }
         } catch (e) {
             console.error('Could not update iframe mute state:', e);

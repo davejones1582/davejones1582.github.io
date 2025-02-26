@@ -1,54 +1,7 @@
 /**
  * main.js - Main entry point
  */
-import { DEFAULT_SUBREDDITS, fetchRedditVideos, fetchSubredditInfo, isLocalMode }
-
-/**
- * Refresh content, resetting videos
- */
-function refreshContent() {
-    afterToken = null;
-    hasMore = true;
-    allVideos = [];
-    
-    // Clear grid and ensure loading spinner is hidden
-    document.getElementById('video-grid').innerHTML = '';
-    hideLoading();
-    
-    // Log current settings if debug mode is on
-    if (debugMode) {
-        console.log("Refreshing content with settings:", currentSettings);
-    }
-    
-    loadMoreVideos();
-}
-
-// Start the application when DOM is ready
-document.addEventListener('DOMContentLoaded', initializeApp);
-
-// For exposing closeLightbox to global scope
-window.closeLightbox = closeLightbox;
-// Expose navigate function globally
-window.navigate = (direction) => {
-    // Import the navigate function from lightbox.js directly
-    import('./lightbox.js').then(module => {
-        module.navigate(direction);
-    });
-};
-
-// For the default button that's using onclick in HTML
-window.loadDefaultSubreddits = loadDefaultSubreddits;
-// For debug mode toggle
-window.toggleDebugMode = toggleDebugMode;
-
-// Export for testing/debugging
-export {
-    refreshContent,
-    loadMoreVideos,
-    toggleFavorites,
-    toggleActiveSubreddit,
-    isVideoFavorited
-} from './api.js';
+import { DEFAULT_SUBREDDITS, fetchRedditVideos, fetchSubredditInfo } from './api.js';
 import { 
     saveSettings, loadSettings, saveFavorites, loadFavorites, saveTheme, loadTheme 
 } from './storage.js';
@@ -57,7 +10,7 @@ import {
     renderSubredditTags, initThemeToggle, updateThemeButton, applyTheme 
 } from './ui.js';
 import { updateMuteState } from './video.js';
-import { showLightbox, closeLightbox } from './lightbox.js';
+import { showLightbox, closeLightbox, navigate } from './lightbox.js';
 
 // App state
 let allVideos = [];
@@ -81,15 +34,11 @@ let currentSettings = {
     autoplay: false
 };
 let currentTheme = 'dark';
-let debugMode = false;
 
 /**
  * Initialize the application
  */
 function initializeApp() {
-    // Show environment mode message
-    console.log(`Running in ${isLocalMode ? 'local' : 'online'} mode`);
-
     // Load saved settings
     const defaultSettings = {
         sort: 'hot',
@@ -99,19 +48,7 @@ function initializeApp() {
         autoplay: false
     };
     
-    // Load settings, merge with defaults for missing properties
-    const savedSettings = loadSettings(null);
-    currentSettings = {
-        ...defaultSettings,
-        ...savedSettings
-    };
-    
-    // Ensure required properties exist
-    if (!currentSettings.sort) currentSettings.sort = 'hot';
-    if (!currentSettings.time) currentSettings.time = 'week';
-    if (!Array.isArray(currentSettings.subreddits)) currentSettings.subreddits = [];
-    
-    console.log('Initialized with settings:', currentSettings);
+    currentSettings = loadSettings(defaultSettings);
     
     // Load favorites
     favoriteVideos = loadFavorites();
@@ -132,14 +69,6 @@ function initializeApp() {
     
     // Update sort buttons
     updateSortButtons(currentSettings.sort, showingFavorites);
-    
-    // Set time filter value based on settings
-    const timeSelect = document.getElementById('time-select');
-    if (timeSelect) {
-        timeSelect.value = currentSettings.time;
-        // Show/hide time filter based on sort
-        timeSelect.style.display = currentSettings.sort === 'top' ? 'block' : 'none';
-    }
     
     // If no subreddits, load defaults
     if (userSubreddits.length === 0) {
@@ -165,36 +94,6 @@ function initializeApp() {
     
     // Initialize infinite scroll
     initObserver();
-}
-
-/**
- * Toggle debug mode
- */
-function toggleDebugMode() {
-    debugMode = !debugMode;
-    console.log(`Debug mode ${debugMode ? 'enabled' : 'disabled'}`);
-    
-    // Add a visual indicator
-    let indicator = document.getElementById('debug-indicator');
-    if (debugMode) {
-        if (!indicator) {
-            indicator = document.createElement('div');
-            indicator.id = 'debug-indicator';
-            indicator.style.position = 'fixed';
-            indicator.style.bottom = '10px';
-            indicator.style.right = '10px';
-            indicator.style.background = 'rgba(255, 0, 0, 0.7)';
-            indicator.style.color = 'white';
-            indicator.style.padding = '5px 10px';
-            indicator.style.borderRadius = '5px';
-            indicator.style.fontSize = '12px';
-            indicator.style.zIndex = '1000';
-            indicator.textContent = 'DEBUG';
-            document.body.appendChild(indicator);
-        }
-    } else if (indicator) {
-        indicator.remove();
-    }
 }
 
 /**
@@ -258,32 +157,6 @@ function initEventListeners() {
 }
 
 /**
- * Initialize sort buttons
- */
-function initSortButtons() {
-    const sortButtons = document.querySelectorAll('.sort-button');
-    sortButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            if (showingFavorites || button.classList.contains('active')) return;
-            
-            // Update sort setting
-            currentSettings.sort = button.dataset.sort;
-            
-            // Update UI
-            updateSortButtons(currentSettings.sort, showingFavorites);
-            
-            // Show/hide time filter only for "top" sort
-            const timeFilter = document.getElementById('time-select');
-            timeFilter.style.display = currentSettings.sort === 'top' ? 'block' : 'none';
-            
-            // Save setting and refresh content
-            saveSettings(currentSettings);
-            refreshContent();
-        });
-    });
-}
-
-/**
  * Toggle theme
  */
 function toggleTheme() {
@@ -291,6 +164,21 @@ function toggleTheme() {
     applyTheme(currentTheme);
     updateThemeButton(themeToggleButton, currentTheme);
     saveTheme(currentTheme);
+}
+
+/**
+ * Initialize sort buttons
+ */
+function initSortButtons() {
+    const buttons = document.querySelectorAll('.sort-button');
+    buttons.forEach(button => {
+        button.addEventListener('click', () => {
+            currentSettings.sort = button.dataset.sort;
+            updateSortButtons(currentSettings.sort, showingFavorites);
+            saveSettings(currentSettings);
+            refreshContent();
+        });
+    });
 }
 
 /**
@@ -537,15 +425,9 @@ function toggleGridSize() {
  * Change time filter
  */
 function changeTimeFilter() {
-    const timeSelect = document.getElementById('time-select');
-    const newTime = timeSelect.value;
-    
-    // Only refresh if the value actually changed
-    if (currentSettings.time !== newTime) {
-        currentSettings.time = newTime;
-        saveSettings(currentSettings);
-        refreshContent();
-    }
+    currentSettings.time = document.getElementById('time-select').value;
+    saveSettings(currentSettings);
+    refreshContent();
 }
 
 /**
@@ -679,21 +561,11 @@ function toggleFavoriteItem(id) {
 /**
  * Load more videos
  */
-/**
- * Load more videos
- */
 async function loadMoreVideos() {
     if (!hasMore || isLoading) return;
     
     isLoading = true;
     showLoading();
-    
-    // Debug logging
-    if (debugMode) {
-        console.log(`Loading more videos with sort=${currentSettings.sort}, time=${currentSettings.time}`);
-        console.log(`Active subreddits: ${activeSubreddits.join(', ')}`);
-        console.log(`After token: ${afterToken || 'null'}`);
-    }
     
     fetchRedditVideos(
         activeSubreddits,
@@ -735,15 +607,12 @@ async function loadMoreVideos() {
         },
         (error) => {
             showError(`Failed to load content: ${error.message}`);
-            console.error("API Error:", error);
             isLoading = false;
             hideLoading();
+            hasMore = false;
             
-            // If it's a network error, try again after delay
-            if (error.message.includes('HTTP error') || 
-                error.message.includes('Failed to fetch') ||
-                error.name === 'TypeError') {
-                
+            // Try again after a delay if it might be a temporary issue
+            if (error.message.includes('HTTP error') || error.message.includes('Failed to fetch')) {
                 setTimeout(() => {
                     hasMore = true;
                     loadMoreVideos();
@@ -752,3 +621,27 @@ async function loadMoreVideos() {
         }
     );
 }
+
+/**
+ * Refresh content, resetting videos
+ */
+function refreshContent() {
+    afterToken = null;
+    hasMore = true;
+    allVideos = [];
+    document.getElementById('video-grid').innerHTML = '';
+    loadMoreVideos();
+}
+
+// Start the application when DOM is ready
+document.addEventListener('DOMContentLoaded', initializeApp);
+
+// For exposing closeLightbox to global scope
+window.closeLightbox = closeLightbox;
+window.navigate = (direction) => {
+    const videos = showingFavorites ? favoriteVideos : allVideos;
+    navigate(direction, videos, isMuted, isVideoFavorited, toggleFavoriteItem);
+};
+
+// For the default button that's using onclick in HTML
+window.loadDefaultSubreddits = loadDefaultSubreddits;
