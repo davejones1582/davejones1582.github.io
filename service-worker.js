@@ -4,8 +4,14 @@ const CACHE_NAME = 'reddit-video-gallery-v1';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
+  '/manifest.json',
   '/styles/main.css',
-  '/scripts/app.js'
+  '/scripts/main.js',
+  '/scripts/api.js',
+  '/scripts/storage.js',
+  '/scripts/ui.js',
+  '/scripts/video.js',
+  '/scripts/lightbox.js'
 ];
 
 // Install event - cache static assets

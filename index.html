@@ -20,7 +20,7 @@
                 <button id="sound-toggle" class="icon-button" aria-label="Toggle sound">🔇</button>
                 <button id="favorites-toggle" class="icon-button" aria-label="Show favorites">⭐</button>
                 <button id="grid-size-toggle" class="icon-button" aria-label="Toggle grid size">▦</button>
-                <button id="defaults-button" class="icon-button" aria-label="Load defaults" onclick="loadDefaultSubreddits()">🔄</button>
+                <button id="defaults-button" class="icon-button" aria-label="Load defaults">🔄</button>
                 <!-- Theme toggle button will be added by JavaScript -->
             </div>
         </div>
@@ -64,7 +64,9 @@
         </div>
     </div>
 
-    <script src="./scripts/app.js"></script>
+    <!-- Load scripts using ES modules -->
+    <script type="module" src="./scripts/main.js"></script>
+
     <noscript>
         <div style="text-align: center; padding: 20px; color: #ff3b30;">
             This application requires JavaScript to run. Please enable JavaScript in your browser.
