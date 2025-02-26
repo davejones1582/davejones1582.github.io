@@ -49,9 +49,10 @@ function hideLoading() {
 }
 
 // Convert redgifs URLs to embeddable format
-function getRedgifsEmbedUrl(url) {
+function getRedgifsEmbedUrl(url, muted = true) {
     const id = url.split('/').pop();
-    return `https://www.redgifs.com/ifr/${id}?autoplay=0&controls=1`;
+    // The correct parameters for Redgifs are "muted" (not "mute") and "autoplay"
+    return `https://www.redgifs.com/ifr/${id}?autoplay=1&muted=${muted ? '1' : '0'}&controls=1`;
 }
 
 // Main page controls
@@ -155,16 +156,27 @@ function toggleSound() {
     // Handle iframe videos
     if (currentVideoIframe) {
         try {
-            const src = new URL(currentVideoIframe.src);
-            
-            // Different services have different parameter names
-            if (src.href.includes('youtube.com')) {
-                src.searchParams.set('mute', isMuted ? '1' : '0');
+            if (currentVideoIframe.src.includes('redgifs.com')) {
+                // For Redgifs, we need to recreate the iframe with new parameters
+                const currentSrc = currentVideoIframe.src;
+                const urlObj = new URL(currentSrc);
+                const redgifsId = urlObj.pathname.split('/').pop();
+                
+                // Create new URL with updated mute parameter
+                currentVideoIframe.src = `https://www.redgifs.com/ifr/${redgifsId}?autoplay=1&muted=${isMuted ? '1' : '0'}&controls=1`;
             } else {
-                src.searchParams.set('muted', isMuted ? '1' : '0');
+                // Handle other iframe types
+                const src = new URL(currentVideoIframe.src);
+                
+                // Different services have different parameter names
+                if (src.href.includes('youtube.com')) {
+                    src.searchParams.set('mute', isMuted ? '1' : '0');
+                } else {
+                    src.searchParams.set('muted', isMuted ? '1' : '0');
+                }
+                
+                currentVideoIframe.src = src.href;
             }
-            
-            currentVideoIframe.src = src.href;
         } catch (e) {
             console.error('Could not update iframe mute state:', e);
         }
@@ -438,8 +450,8 @@ function showLightbox(item) {
                             videoUrl = item.url;
                         }
                     } else if (urlString.includes('redgifs.com')) {
-                        // RedGifs handling
-                        videoUrl = getRedgifsEmbedUrl(item.url);
+                        // RedGifs handling - pass the current mute state
+                        videoUrl = getRedgifsEmbedUrl(item.url, isMuted);
                     }
                 } catch (e) {
                     console.error("URL parsing error:", e);
