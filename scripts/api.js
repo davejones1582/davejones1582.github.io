@@ -41,15 +41,16 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
     }
 
     try {
-        // Join subreddits with plus sign - proper encoding is applied later
-        const multiSub = activeSubreddits.join('+');
+        // Fix URL construction for mobile compatibility
+        const encodedSubreddits = activeSubreddits.map(sub => encodeURIComponent(sub)).join('+');
         const sort = settings.sort;
         const timeParam = sort === 'top' ? `&t=${settings.time}` : '';
-
-        // Build the Reddit API URL without double-encoding the parts
-        const redditApiUrl = `https://www.reddit.com/r/${multiSub}/${sort}.json?limit=${BATCH_SIZE}&raw_json=1${afterToken ? `&after=${afterToken}` : ''}${timeParam}`;
+        const afterParam = afterToken ? `&after=${encodeURIComponent(afterToken)}` : '';
         
-        // Apply CORS proxy with proper URL encoding
+        // Construct base URL with properly encoded components
+        const redditApiUrl = `https://www.reddit.com/r/${encodedSubreddits}/${sort}.json?limit=${BATCH_SIZE}&raw_json=1${afterParam}${timeParam}`;
+        
+        // Use the CORS proxy with proper encoding
         const url = `https://corsproxy.io/?${encodeURIComponent(redditApiUrl)}`;
 
         const response = await fetch(url);
@@ -172,7 +173,8 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
  */
 async function fetchSubredditInfo(subreddit) {
     try {
-        const redditApiUrl = `https://www.reddit.com/r/${subreddit}/about.json`;
+        const encodedSubreddit = encodeURIComponent(subreddit);
+        const redditApiUrl = `https://www.reddit.com/r/${encodedSubreddit}/about.json`;
         const url = `https://corsproxy.io/?${encodeURIComponent(redditApiUrl)}`;
         
         const response = await fetch(url);
