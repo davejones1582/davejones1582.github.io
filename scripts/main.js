@@ -607,12 +607,15 @@ async function loadMoreVideos() {
         },
         (error) => {
             showError(`Failed to load content: ${error.message}`);
+            console.error("API Error:", error);
             isLoading = false;
             hideLoading();
-            hasMore = false;
             
-            // Try again after a delay if it might be a temporary issue
-            if (error.message.includes('HTTP error') || error.message.includes('Failed to fetch')) {
+            // If it's a network error, try again after delay
+            if (error.message.includes('HTTP error') || 
+                error.message.includes('Failed to fetch') ||
+                error.name === 'TypeError') {
+                
                 setTimeout(() => {
                     hasMore = true;
                     loadMoreVideos();
@@ -638,10 +641,12 @@ document.addEventListener('DOMContentLoaded', initializeApp);
 
 // For exposing closeLightbox to global scope
 window.closeLightbox = closeLightbox;
+// Expose the navigation function globally
 window.navigate = (direction) => {
-    const videos = showingFavorites ? favoriteVideos : allVideos;
-    navigate(direction, videos, isMuted, isVideoFavorited, toggleFavoriteItem);
+    // Import the navigate function from lightbox.js directly
+    import('./lightbox.js').then(module => {
+        module.navigate(direction);
+    });
 };
-
 // For the default button that's using onclick in HTML
 window.loadDefaultSubreddits = loadDefaultSubreddits;

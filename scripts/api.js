@@ -21,56 +21,15 @@ const DEFAULT_SUBREDDITS = [
  * @returns {string} Embeddable URL
  */
 function getRedgifsEmbedUrl(url, muted = true) {
-    const id = url.split('/').pop();
-    return `https://www.redgifs.com/ifr/${id}?autoplay=1&muted=${muted ? '1' : '0'}&controls=1`;
-}
-
-/**
- * Create a properly encoded Reddit API URL
- * 
- * @param {Array} subreddits - List of subreddits
- * @param {string} sort - Sort method
- * @param {Object} options - Additional options
- * @returns {string} Encoded URL
- */
-function buildRedditUrl(subreddits, sort, options = {}) {
     try {
-        // Use URL and URLSearchParams for safer URL construction
-        const baseUrl = new URL(`https://www.reddit.com/r/${subreddits.join('+')}/${sort}.json`);
-        
-        // Add query parameters
-        const params = baseUrl.searchParams;
-        params.append('limit', options.limit || BATCH_SIZE);
-        params.append('raw_json', '1');
-        
-        if (options.after) {
-            params.append('after', options.after);
-        }
-        
-        if (sort === 'top' && options.time) {
-            params.append('t', options.time);
-        }
-        
-        return baseUrl.toString();
-    } catch (error) {
-        console.error('Error building Reddit URL:', error);
-        // Fallback to manual string construction
-        const subredditStr = subreddits.join('+');
-        const timeParam = sort === 'top' && options.time ? `&t=${options.time}` : '';
-        const afterParam = options.after ? `&after=${options.after}` : '';
-        
-        return `https://www.reddit.com/r/${subredditStr}/${sort}.json?limit=${options.limit || BATCH_SIZE}&raw_json=1${afterParam}${timeParam}`;
+        let id = url.split('/').pop();
+        // Clean up ID in case there are query parameters
+        id = id.split('?')[0];
+        return `https://www.redgifs.com/ifr/${id}?autoplay=1&muted=${muted ? '1' : '0'}&controls=1`;
+    } catch (e) {
+        console.error("Error processing RedGifs URL:", e);
+        return url;
     }
-}
-
-/**
- * Safely apply CORS proxy to URL
- * 
- * @param {string} url - Original URL
- * @returns {string} Proxied URL
- */
-function applyCorsProxy(url) {
-    return `https://corsproxy.io/?${encodeURIComponent(url)}`;
 }
 
 /**
@@ -89,14 +48,22 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
     }
 
     try {
-        // Build URL with new utility methods
-        const redditApiUrl = buildRedditUrl(activeSubreddits, settings.sort, {
-            time: settings.time,
-            after: afterToken
-        });
+        // Build the multi-reddit string properly
+        const multiSub = activeSubreddits.join('+');
+        const sort = settings.sort;
+        const timeParam = sort === 'top' ? `&t=${settings.time}` : '';
+
+        // Build the URL
+        let redditApiUrl = `https://www.reddit.com/r/${multiSub}/${sort}.json?limit=${BATCH_SIZE}&raw_json=1${timeParam}`;
         
-        const url = applyCorsProxy(redditApiUrl);
+        // Add after token if present
+        if (afterToken) {
+            redditApiUrl += `&after=${afterToken}`;
+        }
         
+        // Use CORS proxy
+        const url = `https://corsproxy.io/?${encodeURIComponent(redditApiUrl)}`;
+
         const response = await fetch(url);
         
         if (!response.ok) {
@@ -162,7 +129,7 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
                     videoUrl = data.url;
                 }
                 
-                // Get thumbnail
+                // Get thumbnail - ensure proper URL formatting
                 let thumbnailUrl;
                 if (data.preview && data.preview.images && data.preview.images[0]) {
                     thumbnailUrl = data.preview.images[0].source.url.replace(/&amp;/g, '&');
@@ -175,15 +142,9 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
                 // For Reddit videos, check if there's a separate audio track
                 let audioUrl = null;
                 if (isRedditVideo && data.media.reddit_video.fallback_url) {
-                    const dashUrl = data.media.reddit_video.dash_url;
-                    if (dashUrl) {
-                        // Try to extract audio URL from DASH
-                        audioUrl = dashUrl.replace('DASHPlaylist.mpd', 'DASH_audio.mp4');
-                    } else {
-                        // Try to construct audio URL
-                        const videoUrl = data.media.reddit_video.fallback_url;
-                        audioUrl = videoUrl.replace(/DASH_\d+/, 'DASH_audio');
-                    }
+                    // Get base URL for audio
+                    const videoUrlBase = data.media.reddit_video.fallback_url.split('DASH_')[0];
+                    audioUrl = `${videoUrlBase}DASH_audio.mp4`;
                 }
                 
                 return {
@@ -217,10 +178,9 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
  */
 async function fetchSubredditInfo(subreddit) {
     try {
-        const baseUrl = new URL(`https://www.reddit.com/r/${subreddit}/about.json`);
-        const url = applyCorsProxy(baseUrl.toString());
-        
-        const response = await fetch(url);
+        const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(
+            `https://www.reddit.com/r/${subreddit}/about.json`
+        )}`);
         
         if (!response.ok) {
             throw new Error(`Failed to fetch subreddit info: ${response.status}`);

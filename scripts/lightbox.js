@@ -5,6 +5,11 @@ import { createVideoIframe, createRedditVideo, setVideoReferences, resetVideoRef
 
 let currentVideoIndex = 0;
 let touchStartX = 0;
+let touchStartY = 0;
+let currentVideos = [];
+let globalIsMuted = true;
+let globalIsFavoriteCheck = null;
+let globalOnToggleFavorite = null;
 
 /**
  * Show lightbox with video
@@ -19,7 +24,30 @@ let touchStartX = 0;
 function showLightbox(item, index, videos, isMuted, isFavoriteCheck, onToggleFavorite) {
     if (!item) return;
     
+    // Update global state
     currentVideoIndex = index;
+    currentVideos = videos;
+    globalIsMuted = isMuted;
+    globalIsFavoriteCheck = isFavoriteCheck;
+    globalOnToggleFavorite = onToggleFavorite;
+    
+    // Show lightbox
+    document.getElementById('lightbox').style.display = 'flex';
+    
+    // Display content
+    displayVideoContent(item);
+    
+    // Set up event listeners
+    setupLightboxEventListeners();
+}
+
+/**
+ * Display video content in the lightbox
+ * 
+ * @param {Object} item - Video data
+ */
+function displayVideoContent(item) {
+    if (!item) return;
     
     const container = document.getElementById('media-container');
     container.innerHTML = ''; // Clear previous content
@@ -30,7 +58,7 @@ function showLightbox(item, index, videos, isMuted, isFavoriteCheck, onToggleFav
         try {
             if (item.isReddit && item.fallbackUrl) {
                 // Native Reddit video with fallback URL
-                const video = createRedditVideo(item.fallbackUrl, item.audioUrl, isMuted, container);
+                const video = createRedditVideo(item.fallbackUrl, item.audioUrl, globalIsMuted, container);
                 container.appendChild(video);
                 
                 video.play().catch(e => {
@@ -49,26 +77,14 @@ function showLightbox(item, index, videos, isMuted, isFavoriteCheck, onToggleFav
                 setVideoReferences(null, video);
             } else {
                 // Embedded video (YouTube, Redgifs, etc)
-                const iframe = createVideoIframe(item.url, isMuted);
+                const iframe = createVideoIframe(item.url, globalIsMuted);
                 container.appendChild(iframe);
                 setVideoReferences(iframe, null);
             }
         } catch (error) {
             console.error("Error displaying video:", error);
             // Fallback to showing the thumbnail as an image
-            const img = document.createElement('img');
-            img.className = 'lightbox-image';
-            img.src = item.thumbnail;
-            container.appendChild(img);
-            
-            // Add error message
-            const errorMsg = document.createElement('div');
-            errorMsg.className = 'media-error-message';
-            errorMsg.textContent = 'Could not load video. Click to view on Reddit.';
-            errorMsg.addEventListener('click', () => {
-                window.open(`https://reddit.com${item.permalink}`, '_blank');
-            });
-            container.appendChild(errorMsg);
+            displayFallbackImage(item, container);
         }
     } else {
         // Image
@@ -79,7 +95,38 @@ function showLightbox(item, index, videos, isMuted, isFavoriteCheck, onToggleFav
     }
 
     // Add metadata with favorite button
-    const isFavorite = isFavoriteCheck(item.id);
+    updateMetadataDisplay(item);
+}
+
+/**
+ * Display fallback image when video fails
+ * 
+ * @param {Object} item - Video data
+ * @param {HTMLElement} container - Container element
+ */
+function displayFallbackImage(item, container) {
+    const img = document.createElement('img');
+    img.className = 'lightbox-image';
+    img.src = item.thumbnail;
+    container.appendChild(img);
+    
+    // Add error message
+    const errorMsg = document.createElement('div');
+    errorMsg.className = 'media-error-message';
+    errorMsg.textContent = 'Could not load video. Click to view on Reddit.';
+    errorMsg.addEventListener('click', () => {
+        window.open(`https://reddit.com${item.permalink}`, '_blank');
+    });
+    container.appendChild(errorMsg);
+}
+
+/**
+ * Update metadata display
+ * 
+ * @param {Object} item - Video data
+ */
+function updateMetadataDisplay(item) {
+    const isFavorite = globalIsFavoriteCheck(item.id);
     const metadata = document.getElementById('lightbox-metadata');
     metadata.innerHTML = `
         <div class="lightbox-header">
@@ -95,12 +142,7 @@ function showLightbox(item, index, videos, isMuted, isFavoriteCheck, onToggleFav
     
     // Add event listener to favorite button
     const favBtn = metadata.querySelector('.lightbox-favorite');
-    favBtn.addEventListener('click', () => onToggleFavorite(item.id));
-
-    document.getElementById('lightbox').style.display = 'flex';
-    
-    // Set up event listeners
-    setupLightboxEventListeners(videos);
+    favBtn.addEventListener('click', () => globalOnToggleFavorite(item.id));
 }
 
 /**
@@ -128,41 +170,26 @@ function closeLightbox() {
  * Navigate to next or previous item
  * 
  * @param {number} direction - Direction (-1 for previous, 1 for next)
- * @param {Array} videos - Videos array
- * @param {boolean} isMuted - Mute state
- * @param {function} isFavoriteCheck - Function to check if video is favorited
- * @param {function} onToggleFavorite - Callback for toggling favorite
  */
-function navigate(direction, videos, isMuted, isFavoriteCheck, onToggleFavorite) {
-    if (videos.length === 0) return;
+function navigate(direction) {
+    if (!currentVideos || currentVideos.length === 0) return;
     
     currentVideoIndex += direction;
-    if (currentVideoIndex < 0) currentVideoIndex = videos.length - 1;
-    if (currentVideoIndex >= videos.length) currentVideoIndex = 0;
+    if (currentVideoIndex < 0) currentVideoIndex = currentVideos.length - 1;
+    if (currentVideoIndex >= currentVideos.length) currentVideoIndex = 0;
     
-    showLightbox(
-        videos[currentVideoIndex], 
-        currentVideoIndex, 
-        videos, 
-        isMuted, 
-        isFavoriteCheck, 
-        onToggleFavorite
-    );
+    displayVideoContent(currentVideos[currentVideoIndex]);
 }
 
 /**
  * Handle keyboard events
  * 
  * @param {Event} e - Keyboard event
- * @param {Array} videos - Videos array
- * @param {boolean} isMuted - Mute state
- * @param {function} isFavoriteCheck - Function to check if video is favorited
- * @param {function} onToggleFavorite - Callback for toggling favorite
  */
-function handleKeyDown(e, videos, isMuted, isFavoriteCheck, onToggleFavorite) {
+function handleKeyDown(e) {
     if (document.getElementById('lightbox').style.display === 'flex') {
-        if (e.key === 'ArrowLeft') navigate(-1, videos, isMuted, isFavoriteCheck, onToggleFavorite);
-        if (e.key === 'ArrowRight') navigate(1, videos, isMuted, isFavoriteCheck, onToggleFavorite);
+        if (e.key === 'ArrowLeft') navigate(-1);
+        if (e.key === 'ArrowRight') navigate(1);
         if (e.key === 'Escape') closeLightbox();
     }
 }
@@ -174,59 +201,50 @@ function handleKeyDown(e, videos, isMuted, isFavoriteCheck, onToggleFavorite) {
  */
 function handleTouchStart(e) {
     touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
 }
 
 /**
  * Handle touch end event
  * 
  * @param {Event} e - Touch event
- * @param {Array} videos - Videos array
- * @param {boolean} isMuted - Mute state
- * @param {function} isFavoriteCheck - Function to check if video is favorited
- * @param {function} onToggleFavorite - Callback for toggling favorite
  */
-function handleTouchEnd(e, videos, isMuted, isFavoriteCheck, onToggleFavorite) {
+function handleTouchEnd(e) {
     const touchEndX = e.changedTouches[0].clientX;
+    const touchEndY = e.changedTouches[0].clientY;
     const diffX = touchStartX - touchEndX;
+    const diffY = touchStartY - touchEndY;
     
-    if (Math.abs(diffX) > 50) {
-        navigate(diffX > 0 ? 1 : -1, videos, isMuted, isFavoriteCheck, onToggleFavorite);
+    // Only register horizontal swipes
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 50) {
+        navigate(diffX > 0 ? 1 : -1);
     }
 }
 
 /**
  * Set up lightbox event listeners
- * 
- * @param {Array} videos - Videos array
- * @param {boolean} isMuted - Mute state
- * @param {function} isFavoriteCheck - Function to check if video is favorited
- * @param {function} onToggleFavorite - Callback for toggling favorite
  */
-function setupLightboxEventListeners(videos, isMuted, isFavoriteCheck, onToggleFavorite) {
+function setupLightboxEventListeners() {
     // Clean up existing event listeners before adding new ones
     document.removeEventListener('keydown', handleKeyDown);
-    document.addEventListener('keydown', (e) => 
-        handleKeyDown(e, videos, isMuted, isFavoriteCheck, onToggleFavorite)
-    );
+    document.addEventListener('keydown', handleKeyDown);
     
     const lightbox = document.getElementById('lightbox');
     lightbox.removeEventListener('touchstart', handleTouchStart);
     lightbox.removeEventListener('touchend', handleTouchEnd);
-    lightbox.addEventListener('touchstart', handleTouchStart);
-    lightbox.addEventListener('touchend', (e) => 
-        handleTouchEnd(e, videos, isMuted, isFavoriteCheck, onToggleFavorite)
-    );
+    lightbox.addEventListener('touchstart', handleTouchStart, { passive: true });
+    lightbox.addEventListener('touchend', handleTouchEnd);
     
     // Set up navigation buttons
     const prevBtn = document.querySelector('.lightbox-prev');
     const nextBtn = document.querySelector('.lightbox-next');
     
     if (prevBtn) {
-        prevBtn.onclick = () => navigate(-1, videos, isMuted, isFavoriteCheck, onToggleFavorite);
+        prevBtn.onclick = () => navigate(-1);
     }
     
     if (nextBtn) {
-        nextBtn.onclick = () => navigate(1, videos, isMuted, isFavoriteCheck, onToggleFavorite);
+        nextBtn.onclick = () => navigate(1);
     }
     
     // Set up close button
