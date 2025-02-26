@@ -41,15 +41,16 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
     }
 
     try {
-        // Join subreddits with proper URL encoding for each
-        const multiSub = activeSubreddits.map(sub => encodeURIComponent(sub)).join('+');
+        // Join subreddits with plus sign - proper encoding is applied later
+        const multiSub = activeSubreddits.join('+');
         const sort = settings.sort;
         const timeParam = sort === 'top' ? `&t=${settings.time}` : '';
 
-        // Build the URL with proper encoding
+        // Build the Reddit API URL without double-encoding the parts
         const redditApiUrl = `https://www.reddit.com/r/${multiSub}/${sort}.json?limit=${BATCH_SIZE}&raw_json=1${afterToken ? `&after=${afterToken}` : ''}${timeParam}`;
         
-        let url = `https://corsproxy.io/?${encodeURIComponent(redditApiUrl)}`;
+        // Apply CORS proxy with proper URL encoding
+        const url = `https://corsproxy.io/?${encodeURIComponent(redditApiUrl)}`;
 
         const response = await fetch(url);
         
@@ -171,9 +172,10 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
  */
 async function fetchSubredditInfo(subreddit) {
     try {
-        const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(
-            `https://www.reddit.com/r/${subreddit}/about.json`
-        )}`);
+        const redditApiUrl = `https://www.reddit.com/r/${subreddit}/about.json`;
+        const url = `https://corsproxy.io/?${encodeURIComponent(redditApiUrl)}`;
+        
+        const response = await fetch(url);
         
         if (!response.ok) {
             throw new Error(`Failed to fetch subreddit info: ${response.status}`);
