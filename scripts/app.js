@@ -646,13 +646,15 @@ async function fetchRedditVideos() {
     showLoading();
     
     try {
-        const multiSub = activeSubreddits.join('+');
+        // Join subreddits with proper URL encoding for each
+        const multiSub = activeSubreddits.map(sub => encodeURIComponent(sub)).join('+');
         const sort = currentSettings.sort;
         const timeParam = sort === 'top' ? `&t=${currentSettings.time}` : '';
 
-        let url = `https://corsproxy.io/?${encodeURIComponent(
-            `https://www.reddit.com/r/${multiSub}/${sort}.json?limit=${batchSize}&raw_json=1`
-        )}${timeParam}${afterToken ? `&after=${afterToken}` : ''}`;
+        // Build the URL with proper encoding
+        const redditApiUrl = `https://www.reddit.com/r/${multiSub}/${sort}.json?limit=${batchSize}&raw_json=1${afterToken ? `&after=${afterToken}` : ''}${timeParam}`;
+        
+        let url = `https://corsproxy.io/?${encodeURIComponent(redditApiUrl)}`;
 
         const response = await fetch(url);
         
@@ -764,17 +766,18 @@ async function fetchRedditVideos() {
         return newVideos;
     } catch (error) {
         console.error('Error fetching content:', error);
+        console.error('Stack trace:', error.stack);
         showError(`Failed to load content: ${error.message}`);
         hideLoading();
         isLoading = false;
-        hasMore = false; // Prevent continuous retries on error
+        hasMore = false;
         
         // Try again after a delay if it might be a temporary issue
         if (error.message.includes('HTTP error') || error.message.includes('Failed to fetch')) {
             setTimeout(() => {
-                hasMore = true; // Re-enable fetching
+                hasMore = true;
                 loadMoreVideos();
-            }, 5000); // Try again after 5 seconds
+            }, 5000);
         }
         
         return [];
