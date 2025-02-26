@@ -1,647 +1,200 @@
 /**
- * main.js - Main entry point
+ * api.js - Functions for fetching data from Reddit API
  */
-import { DEFAULT_SUBREDDITS, fetchRedditVideos, fetchSubredditInfo } from './api.js';
-import { 
-    saveSettings, loadSettings, saveFavorites, loadFavorites, saveTheme, loadTheme 
-} from './storage.js';
-import { 
-    showError, showLoading, hideLoading, renderVideos, updateSortButtons, 
-    renderSubredditTags, initThemeToggle, updateThemeButton, applyTheme 
-} from './ui.js';
-import { updateMuteState } from './video.js';
-import { showLightbox, closeLightbox, navigate } from './lightbox.js';
 
-// App state
-let allVideos = [];
-let userSubreddits = [];
-let activeSubreddits = [];
-let currentVideoIndex = 0;
-let afterToken = null;
-let isLoading = false;
-let hasMore = true;
-let favoriteVideos = [];
-let showingFavorites = false;
-let searchTimeout;
-let observer;
-let isMuted = true;
-let themeToggleButton;
-let currentSettings = {
-    sort: 'hot',
-    time: 'week',
-    subreddits: [],
-    compactView: false,
-    autoplay: false
-};
-let currentTheme = 'dark';
+// Configuration
+const BATCH_SIZE = 25;
+const DEFAULT_SUBREDDITS = [
+    'videos',
+    'youtubehaiku',
+    'deepintoyoutube',
+    'TikTokCringe',
+    'perfectlycutscreams',
+    'contagiouslaughter'        
+];
 
 /**
- * Initialize the application
+ * Convert RedGifs URLs to embeddable format
+ * 
+ * @param {string} url - Original RedGifs URL
+ * @param {boolean} muted - Whether the video should be muted
+ * @returns {string} Embeddable URL
  */
-function initializeApp() {
-    // Load saved settings
-    const defaultSettings = {
-        sort: 'hot',
-        time: 'week',
-        subreddits: [],
-        compactView: false,
-        autoplay: false
-    };
-    
-    currentSettings = loadSettings(defaultSettings);
-    
-    // Load favorites
-    favoriteVideos = loadFavorites();
-    
-    // Load theme
-    currentTheme = loadTheme('dark');
-    applyTheme(currentTheme);
-    
-    // Initialize UI components
-    themeToggleButton = initThemeToggle(currentTheme, toggleTheme);
-    
-    // Initialize event listeners
-    initEventListeners();
-    
-    // Get subreddit list from settings
-    userSubreddits = currentSettings.subreddits.map(sub => sub.name);
-    activeSubreddits = [...userSubreddits]; // Start with all active
-    
-    // Update sort buttons
-    updateSortButtons(currentSettings.sort, showingFavorites);
-    
-    // If no subreddits, load defaults
-    if (userSubreddits.length === 0) {
-        loadDefaultSubreddits();
-    } else {
-        // Render subreddit tags
-        renderSubredditTags(
-            userSubreddits,
-            activeSubreddits,
-            toggleActiveSubreddit,
-            removeSubreddit
-        );
-        
-        // Initial load
-        loadMoreVideos();
-    }
-    
-    // Apply grid style
-    const videoGrid = document.getElementById('video-grid');
-    if (videoGrid && currentSettings.compactView) {
-        videoGrid.classList.add('compact');
-    }
-    
-    // Initialize infinite scroll
-    initObserver();
+function getRedgifsEmbedUrl(url, muted = true) {
+    const id = url.split('/').pop();
+    return `https://www.redgifs.com/ifr/${id}?autoplay=1&muted=${muted ? '1' : '0'}&controls=1`;
 }
 
 /**
- * Set up event listeners
+ * Fetch videos from Reddit
+ * 
+ * @param {Array} activeSubreddits - List of active subreddits
+ * @param {Object} settings - Current settings
+ * @param {string} afterToken - Token for pagination
+ * @param {function} onSuccess - Success callback
+ * @param {function} onError - Error callback
  */
-function initEventListeners() {
-    // Favorite toggle button
-    const favToggle = document.getElementById('favorites-toggle');
-    if (favToggle) {
-        favToggle.addEventListener('click', toggleFavorites);
-    }
-    
-    // Sound toggle button
-    const soundToggle = document.getElementById('sound-toggle');
-    if (soundToggle) {
-        soundToggle.addEventListener('click', toggleSound);
-    }
-    
-    // Grid size toggle button
-    const gridToggle = document.getElementById('grid-size-toggle');
-    if (gridToggle) {
-        gridToggle.addEventListener('click', toggleGridSize);
-    }
-    
-    // Default button
-    const defaultsButton = document.getElementById('defaults-button');
-    if (defaultsButton) {
-        defaultsButton.addEventListener('click', loadDefaultSubreddits);
-    }
-    
-    // Quick-add subreddit input
-    const quickAddInput = document.getElementById('quick-subreddit-input');
-    if (quickAddInput) {
-        quickAddInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-                quickAddSubreddit();
-            }
-        });
-    }
-    
-    // Time select change
-    const timeSelect = document.getElementById('time-select');
-    if (timeSelect) {
-        timeSelect.addEventListener('change', changeTimeFilter);
-    }
-    
-    // Sort buttons
-    initSortButtons();
-    
-    // Search input
-    initSearchListener();
-    
-    // Prevent elastic scrolling on iOS in lightbox mode
-    if (navigator.userAgent.match(/iP(hone|od|ad)/)) {
-        document.body.addEventListener('touchmove', (e) => {
-            if (document.getElementById('lightbox').style.display === 'flex') {
-                e.preventDefault();
-            }
-        }, { passive: false });
-    }
-}
-
-/**
- * Toggle theme
- */
-function toggleTheme() {
-    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    applyTheme(currentTheme);
-    updateThemeButton(themeToggleButton, currentTheme);
-    saveTheme(currentTheme);
-}
-
-/**
- * Initialize sort buttons
- */
-function initSortButtons() {
-    const buttons = document.querySelectorAll('.sort-button');
-    buttons.forEach(button => {
-        button.addEventListener('click', () => {
-            currentSettings.sort = button.dataset.sort;
-            updateSortButtons(currentSettings.sort, showingFavorites);
-            saveSettings(currentSettings);
-            refreshContent();
-        });
-    });
-}
-
-/**
- * Initialize search listener
- */
-function initSearchListener() {
-    const searchInput = document.getElementById('search');
-    if (!searchInput) return;
-    
-    searchInput.addEventListener('input', function(e) {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            const query = e.target.value.toLowerCase();
-            const filtered = allVideos.filter(video => 
-                video.title.toLowerCase().includes(query) ||
-                video.subreddit.toLowerCase().includes(query)
-            );
-            renderVideos(
-                filtered,
-                toggleFavoriteItem,
-                (index) => {
-                    currentVideoIndex = index;
-                    showLightbox(
-                        filtered[index],
-                        index,
-                        filtered,
-                        isMuted,
-                        isVideoFavorited,
-                        toggleFavoriteItem
-                    );
-                },
-                isVideoFavorited
-            );
-        }, 300);
-    });
-}
-
-/**
- * Initialize infinite scroll observer
- */
-function initObserver() {
-    // If we already have an observer, disconnect it first
-    if (observer) {
-        observer.disconnect();
-        observer = null;
-    }
-    
-    // Don't initialize observer when showing favorites
-    if (showingFavorites) {
+async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSuccess, onError) {
+    if (!activeSubreddits || activeSubreddits.length === 0) {
+        onSuccess([], null, false);
         return;
     }
-    
-    const sentinel = document.getElementById('scroll-sentinel');
-    if (sentinel) {
-        sentinel.remove(); // Remove existing sentinel if present
-    }
-    
-    if ('IntersectionObserver' in window) {
-        const mobileThreshold = window.matchMedia("(max-width: 768px)").matches ? 0.5 : 0.1;
+
+    try {
+        // Join subreddits with proper URL encoding for each
+        const multiSub = activeSubreddits.map(sub => encodeURIComponent(sub)).join('+');
+        const sort = settings.sort;
+        const timeParam = sort === 'top' ? `&t=${settings.time}` : '';
+
+        // Critical fix: place timeParam and afterToken OUTSIDE encodeURIComponent
+        let url = `https://corsproxy.io/?${encodeURIComponent(
+            `https://www.reddit.com/r/${multiSub}/${sort}.json?limit=${BATCH_SIZE}&raw_json=1`
+        )}${afterToken ? `&after=${afterToken}` : ''}${timeParam}`;
         
-        observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting && hasMore && !isLoading && !showingFavorites) {
-                    loadMoreVideos();
-                }
-            });
-        }, { threshold: mobileThreshold });
+        console.log("Fetching from URL:", url);
 
-        const newSentinel = document.createElement('div');
-        newSentinel.id = 'scroll-sentinel';
-        newSentinel.style.height = '10px';
-        newSentinel.style.marginTop = '20px';
-        document.body.appendChild(newSentinel);
-        observer.observe(newSentinel);
-    } else {
-        // Fallback for browsers without IntersectionObserver
-        window.addEventListener('scroll', () => {
-            if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 500) {
-                if (hasMore && !isLoading && !showingFavorites) {
-                    loadMoreVideos();
+        const response = await fetch(url);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}, statusText: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        
+        // Validate response structure
+        if (!data || !data.data || !Array.isArray(data.data.children)) {
+            throw new Error('Invalid response format from Reddit API');
+        }
+        
+        // Update pagination state
+        const newAfterToken = data.data.after;
+        const hasMore = newAfterToken !== null;
+
+        // Filter for videos and images
+        const newVideos = data.data.children
+            .filter(post => {
+                if (!post || !post.data) return false;
+                
+                // Keep videos and GIFs
+                return (
+                    // Native Reddit videos
+                    post.data.is_video || 
+                    // External videos (YouTube, etc.)
+                    (post.data.domain && (
+                        post.data.domain.includes('youtube.com') || 
+                        post.data.domain.includes('youtu.be') ||
+                        post.data.domain.includes('redgifs.com') ||
+                        post.data.domain.includes('gfycat.com')
+                    )) ||
+                    // Check for videos in secure media embeds
+                    (post.data.secure_media && post.data.secure_media.oembed) ||
+                    // Also include GIFs
+                    (post.data.url && (
+                        post.data.url.endsWith('.gif') ||
+                        post.data.url.endsWith('.gifv')
+                    ))
+                );
+            })
+            .map(post => {
+                const data = post.data;
+                const isRedditVideo = data.is_video && data.media && data.media.reddit_video;
+                const isRedgifs = data.url && data.url.includes('redgifs.com');
+                const isYouTube = data.url && (data.url.includes('youtube.com') || data.url.includes('youtu.be'));
+                
+                let videoUrl;
+                if (isRedditVideo) {
+                    videoUrl = data.url; // Use the post URL for Reddit videos
+                } else if (isRedgifs) {
+                    videoUrl = getRedgifsEmbedUrl(data.url);
+                } else if (isYouTube) {
+                    // Extract video ID is now handled in showLightbox
+                    videoUrl = data.url;
+                } else if (data.secure_media && data.secure_media.oembed) {
+                    // Extract iframe src if available
+                    const html = data.secure_media.oembed.html;
+                    const srcMatch = html?.match(/src="([^"]+)"/);
+                    videoUrl = srcMatch ? srcMatch[1] : data.url;
+                } else {
+                    videoUrl = data.url;
                 }
-            }
-        });
+                
+                // Get thumbnail
+                let thumbnailUrl;
+                if (data.preview && data.preview.images && data.preview.images[0]) {
+                    thumbnailUrl = data.preview.images[0].source.url.replace(/&amp;/g, '&');
+                } else if (data.thumbnail && data.thumbnail !== 'self' && data.thumbnail !== 'default') {
+                    thumbnailUrl = data.thumbnail;
+                } else {
+                    thumbnailUrl = 'https://www.redditstatic.com/mweb2x/img/camera.png'; // Fallback
+                }
+                
+                // For Reddit videos, check if there's a separate audio track
+                let audioUrl = null;
+                if (isRedditVideo && data.media.reddit_video.fallback_url) {
+                    const dashUrl = data.media.reddit_video.dash_url;
+                    if (dashUrl) {
+                        // Try to extract audio URL from DASH
+                        audioUrl = dashUrl.replace('DASHPlaylist.mpd', 'DASH_audio.mp4');
+                    } else {
+                        // Try to construct audio URL
+                        const videoUrl = data.media.reddit_video.fallback_url;
+                        audioUrl = videoUrl.replace(/DASH_\d+/, 'DASH_audio');
+                    }
+                }
+                
+                return {
+                    id: data.id,
+                    title: data.title,
+                    subreddit: data.subreddit,
+                    url: videoUrl,
+                    thumbnail: thumbnailUrl,
+                    upvotes: data.ups,
+                    created: new Date(data.created_utc * 1000).toLocaleDateString(),
+                    isVideo: true, // All are treated as "video" for the purpose of the lightbox
+                    isReddit: isRedditVideo,
+                    fallbackUrl: isRedditVideo ? data.media.reddit_video.fallback_url : null,
+                    audioUrl: audioUrl,
+                    permalink: data.permalink
+                };
+            });
+
+        onSuccess(newVideos, newAfterToken, hasMore);
+    } catch (error) {
+        console.error('Error fetching content:', error);
+        onError(error);
     }
 }
 
 /**
- * Load default subreddits
- */
-async function loadDefaultSubreddits() {
-    if (isLoading) return;
-    
-    showLoading();
-    
-    // Get subscriber counts for default subs
-    const subreddits = await Promise.all(DEFAULT_SUBREDDITS.map(async (name) => {
-        return await fetchSubredditInfo(name);
-    }));
-    
-    // Update settings
-    currentSettings.subreddits = subreddits;
-    userSubreddits = subreddits.map(sub => sub.name);
-    activeSubreddits = [...userSubreddits];
-    
-    saveSettings(currentSettings);
-    hideLoading();
-    
-    // Update UI
-    renderSubredditTags(
-        userSubreddits,
-        activeSubreddits,
-        toggleActiveSubreddit,
-        removeSubreddit
-    );
-    refreshContent();
-}
-
-/**
- * Toggle active subreddit
+ * Fetch information about a subreddit
  * 
  * @param {string} subreddit - Subreddit name
+ * @returns {Promise<Object>} - Subreddit information
  */
-function toggleActiveSubreddit(subreddit) {
-    const index = activeSubreddits.indexOf(subreddit);
-    if (index === -1) {
-        activeSubreddits.push(subreddit);
-    } else {
-        activeSubreddits.splice(index, 1);
-    }
-    
-    renderSubredditTags(
-        userSubreddits,
-        activeSubreddits,
-        toggleActiveSubreddit,
-        removeSubreddit
-    );
-    refreshContent();
-}
-
-/**
- * Remove subreddit
- * 
- * @param {string} name - Subreddit name
- */
-function removeSubreddit(name) {
-    // Remove from active list
-    const activeIndex = activeSubreddits.indexOf(name);
-    if (activeIndex !== -1) {
-        activeSubreddits.splice(activeIndex, 1);
-    }
-    
-    // Remove from all subreddits
-    const index = userSubreddits.indexOf(name);
-    if (index !== -1) {
-        userSubreddits.splice(index, 1);
-    }
-    
-    // Remove from settings
-    currentSettings.subreddits = currentSettings.subreddits.filter(sub => sub.name !== name);
-    saveSettings(currentSettings);
-    
-    renderSubredditTags(
-        userSubreddits,
-        activeSubreddits,
-        toggleActiveSubreddit,
-        removeSubreddit
-    );
-    refreshContent();
-}
-
-/**
- * Quick add subreddit
- */
-function quickAddSubreddit() {
-    const input = document.getElementById('quick-subreddit-input');
-    const subreddit = input.value.trim().replace(/^r\//i, '');
-    
-    if (!subreddit) return;
-    
-    // Add to subreddit list if not already there
-    if (!userSubreddits.includes(subreddit)) {
-        userSubreddits.push(subreddit);
+async function fetchSubredditInfo(subreddit) {
+    try {
+        const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(
+            `https://www.reddit.com/r/${subreddit}/about.json`
+        )}`);
         
-        // Also add to settings
-        if (!currentSettings.subreddits.some(s => s.name === subreddit)) {
-            currentSettings.subreddits.push({ name: subreddit, subscribers: 0 });
-            saveSettings(currentSettings);
-            
-            // Try to fetch subscriber count in background
-            fetchSubredditInfo(subreddit)
-                .then(info => {
-                    // Update settings
-                    const index = currentSettings.subreddits.findIndex(s => s.name === subreddit);
-                    if (index !== -1) {
-                        currentSettings.subreddits[index].subscribers = info.subscribers;
-                        saveSettings(currentSettings);
-                    }
-                });
+        if (!response.ok) {
+            throw new Error(`Failed to fetch subreddit info: ${response.status}`);
         }
-    }
-    
-    // Activate it
-    if (!activeSubreddits.includes(subreddit)) {
-        activeSubreddits.push(subreddit);
-    }
-    
-    input.value = '';
-    renderSubredditTags(
-        userSubreddits,
-        activeSubreddits,
-        toggleActiveSubreddit,
-        removeSubreddit
-    );
-    refreshContent();
-}
-
-/**
- * Toggle sound mute state
- */
-function toggleSound() {
-    isMuted = !isMuted;
-    const soundBtn = document.getElementById('sound-toggle');
-    soundBtn.textContent = isMuted ? '🔇' : '🔊';
-    soundBtn.classList.toggle('active', !isMuted);
-    
-    updateMuteState(isMuted);
-}
-
-/**
- * Toggle grid size
- */
-function toggleGridSize() {
-    currentSettings.compactView = !currentSettings.compactView;
-    document.getElementById('grid-size-toggle').classList.toggle('active', currentSettings.compactView);
-    
-    // Update grid class
-    const grid = document.getElementById('video-grid');
-    grid.classList.toggle('compact', currentSettings.compactView);
-    
-    saveSettings(currentSettings);
-}
-
-/**
- * Change time filter
- */
-function changeTimeFilter() {
-    currentSettings.time = document.getElementById('time-select').value;
-    saveSettings(currentSettings);
-    refreshContent();
-}
-
-/**
- * Toggle favorites view
- */
-function toggleFavorites() {
-    showingFavorites = !showingFavorites;
-    const favBtn = document.getElementById('favorites-toggle');
-    favBtn.classList.toggle('active', showingFavorites);
-    
-    // Always disconnect observer when changing views
-    if (observer) {
-        observer.disconnect();
-        observer = null;
-    }
-    
-    if (showingFavorites) {
-        renderVideos(
-            favoriteVideos,
-            toggleFavoriteItem,
-            (index) => {
-                currentVideoIndex = index;
-                showLightbox(
-                    favoriteVideos[index],
-                    index,
-                    favoriteVideos,
-                    isMuted,
-                    isVideoFavorited,
-                    toggleFavoriteItem
-                );
-            },
-            isVideoFavorited
-        );
-    } else {
-        renderVideos(
-            allVideos,
-            toggleFavoriteItem,
-            (index) => {
-                currentVideoIndex = index;
-                showLightbox(
-                    allVideos[index],
-                    index,
-                    allVideos,
-                    isMuted,
-                    isVideoFavorited,
-                    toggleFavoriteItem
-                );
-            },
-            isVideoFavorited
-        );
-        // Reconnect infinite scroll only when showing all videos
-        initObserver();
-    }
-    
-    // Update sort buttons status
-    updateSortButtons(currentSettings.sort, showingFavorites);
-}
-
-/**
- * Check if a video is favorited
- * 
- * @param {string} id - Video ID
- * @returns {boolean} Is favorited
- */
-function isVideoFavorited(id) {
-    return favoriteVideos.some(f => f.id === id);
-}
-
-/**
- * Toggle favorite item
- * 
- * @param {string} id - Video ID
- */
-function toggleFavoriteItem(id) {
-    const videoIndex = allVideos.findIndex(v => v.id === id);
-    const video = videoIndex !== -1 ? allVideos[videoIndex] : 
-                  favoriteVideos.find(f => f.id === id);
-    
-    if (!video) return;
-    
-    const favIndex = favoriteVideos.findIndex(f => f.id === id);
-    
-    let isFavorited;
-    if (favIndex === -1) {
-        // Add to favorites
-        favoriteVideos.push(video);
-        isFavorited = true;
-    } else {
-        // Remove from favorites
-        favoriteVideos.splice(favIndex, 1);
-        isFavorited = false;
-    }
-    
-    saveFavorites(favoriteVideos);
-    
-    // Update UI
-    const lightboxFavBtn = document.querySelector('.lightbox-favorite');
-    if (lightboxFavBtn && lightboxFavBtn.dataset.id === id) {
-        lightboxFavBtn.textContent = isFavorited ? '★' : '☆';
-        lightboxFavBtn.classList.toggle('active', isFavorited);
-    }
-    
-    // Update card if in grid
-    const favBtn = document.querySelector(`.favorite-button[data-id="${id}"]`);
-    if (favBtn) {
-        favBtn.textContent = isFavorited ? '★' : '☆';
-        favBtn.classList.toggle('active', isFavorited);
-    }
-    
-    // Re-render if showing favorites
-    if (showingFavorites) {
-        renderVideos(
-            favoriteVideos,
-            toggleFavoriteItem,
-            (index) => {
-                currentVideoIndex = index;
-                showLightbox(
-                    favoriteVideos[index],
-                    index,
-                    favoriteVideos,
-                    isMuted,
-                    isVideoFavorited,
-                    toggleFavoriteItem
-                );
-            },
-            isVideoFavorited
-        );
+        
+        const data = await response.json();
+        return { 
+            name: subreddit, 
+            subscribers: data.data?.subscribers || 0 
+        };
+    } catch (error) {
+        console.error(`Error fetching subreddit info for ${subreddit}:`, error);
+        return { name: subreddit, subscribers: 0 };
     }
 }
 
-/**
- * Load more videos
- */
-async function loadMoreVideos() {
-    if (!hasMore || isLoading) return;
-    
-    isLoading = true;
-    showLoading();
-    
-    fetchRedditVideos(
-        activeSubreddits,
-        currentSettings,
-        afterToken,
-        (newVideos, newAfterToken, more) => {
-            afterToken = newAfterToken;
-            hasMore = more;
-            
-            if (newVideos.length === 0) {
-                if (allVideos.length === 0) {
-                    document.getElementById('video-grid').innerHTML = '<div style="text-align: center; grid-column: 1/-1; padding: 40px;">No videos found. Try selecting different subreddits.</div>';
-                }
-                isLoading = false;
-                hideLoading();
-                return;
-            }
-            
-            allVideos = [...allVideos, ...newVideos];
-            renderVideos(
-                allVideos,
-                toggleFavoriteItem,
-                (index) => {
-                    currentVideoIndex = index;
-                    showLightbox(
-                        allVideos[index],
-                        index,
-                        allVideos,
-                        isMuted,
-                        isVideoFavorited,
-                        toggleFavoriteItem
-                    );
-                },
-                isVideoFavorited
-            );
-            
-            isLoading = false;
-            hideLoading();
-        },
-        (error) => {
-            showError(`Failed to load content: ${error.message}`);
-            isLoading = false;
-            hideLoading();
-            hasMore = false;
-            
-            // Try again after a delay if it might be a temporary issue
-            if (error.message.includes('HTTP error') || error.message.includes('Failed to fetch')) {
-                setTimeout(() => {
-                    hasMore = true;
-                    loadMoreVideos();
-                }, 5000);
-            }
-        }
-    );
-}
-
-/**
- * Refresh content, resetting videos
- */
-function refreshContent() {
-    afterToken = null;
-    hasMore = true;
-    allVideos = [];
-    document.getElementById('video-grid').innerHTML = '';
-    loadMoreVideos();
-}
-
-// Start the application when DOM is ready
-document.addEventListener('DOMContentLoaded', initializeApp);
-
-// For exposing closeLightbox to global scope
-window.closeLightbox = closeLightbox;
-window.navigate = (direction) => {
-    const videos = showingFavorites ? favoriteVideos : allVideos;
-    navigate(direction, videos, isMuted, isVideoFavorited, toggleFavoriteItem);
+export { 
+    DEFAULT_SUBREDDITS, 
+    fetchRedditVideos,
+    fetchSubredditInfo,
+    getRedgifsEmbedUrl
 };
-
-// For the default button that's using onclick in HTML
-window.loadDefaultSubreddits = loadDefaultSubreddits;
