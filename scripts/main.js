@@ -1,5 +1,5 @@
 /**
- * main.js - Main entry point
+ * main.js - Main entry point with mobile detection
  */
 import { DEFAULT_SUBREDDITS, fetchRedditVideos, fetchSubredditInfo } from './api.js';
 import { 
@@ -11,6 +11,28 @@ import {
 } from './ui.js';
 import { updateMuteState } from './video.js';
 import { showLightbox, closeLightbox, navigate } from './lightbox.js';
+import { isIOSSafari } from './mobile-detection.js';
+import { initializeMobileApp } from './mobile-main.js';
+
+// Load the mobile-specific CSS
+function loadMobileCSS() {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = './styles/mobile.css';
+    document.head.appendChild(link);
+}
+
+// Check for iOS Safari and initialize appropriate version
+async function initApp() {
+    if (isIOSSafari()) {
+        console.log("Detected iOS Safari, loading mobile version");
+        loadMobileCSS();
+        initializeMobileApp();
+    } else {
+        console.log("Loading standard version");
+        initializeApp();
+    }
+}
 
 // App state
 let allVideos = [];
@@ -39,6 +61,8 @@ let currentTheme = 'dark';
  * Initialize the application
  */
 function initializeApp() {
+    // All the existing initialization code...
+    // (original content of initializeApp from the original main.js)
     // Load saved settings
     const defaultSettings = {
         sort: 'hot',
@@ -634,7 +658,7 @@ function refreshContent() {
 }
 
 // Start the application when DOM is ready
-document.addEventListener('DOMContentLoaded', initializeApp);
+document.addEventListener('DOMContentLoaded', initApp);
 
 // For exposing closeLightbox to global scope
 window.closeLightbox = closeLightbox;
