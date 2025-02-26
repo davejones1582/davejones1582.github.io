@@ -48,7 +48,19 @@ function initializeApp() {
         autoplay: false
     };
     
-    currentSettings = loadSettings(defaultSettings);
+    // Load settings, merge with defaults for missing properties
+    const savedSettings = loadSettings(null);
+    currentSettings = {
+        ...defaultSettings,
+        ...savedSettings
+    };
+    
+    // Ensure required properties exist
+    if (!currentSettings.sort) currentSettings.sort = 'hot';
+    if (!currentSettings.time) currentSettings.time = 'week';
+    if (!Array.isArray(currentSettings.subreddits)) currentSettings.subreddits = [];
+    
+    console.log('Initialized with settings:', currentSettings);
     
     // Load favorites
     favoriteVideos = loadFavorites();
@@ -69,6 +81,14 @@ function initializeApp() {
     
     // Update sort buttons
     updateSortButtons(currentSettings.sort, showingFavorites);
+    
+    // Set time filter value based on settings
+    const timeSelect = document.getElementById('time-select');
+    if (timeSelect) {
+        timeSelect.value = currentSettings.time;
+        // Show/hide time filter based on sort
+        timeSelect.style.display = currentSettings.sort === 'top' ? 'block' : 'none';
+    }
     
     // If no subreddits, load defaults
     if (userSubreddits.length === 0) {
@@ -170,11 +190,22 @@ function toggleTheme() {
  * Initialize sort buttons
  */
 function initSortButtons() {
-    const buttons = document.querySelectorAll('.sort-button');
-    buttons.forEach(button => {
+    const sortButtons = document.querySelectorAll('.sort-button');
+    sortButtons.forEach(button => {
         button.addEventListener('click', () => {
+            if (showingFavorites || button.classList.contains('active')) return;
+            
+            // Update sort setting
             currentSettings.sort = button.dataset.sort;
+            
+            // Update UI
             updateSortButtons(currentSettings.sort, showingFavorites);
+            
+            // Show/hide time filter only for "top" sort
+            const timeFilter = document.getElementById('time-select');
+            timeFilter.style.display = currentSettings.sort === 'top' ? 'block' : 'none';
+            
+            // Save setting and refresh content
             saveSettings(currentSettings);
             refreshContent();
         });
@@ -425,9 +456,15 @@ function toggleGridSize() {
  * Change time filter
  */
 function changeTimeFilter() {
-    currentSettings.time = document.getElementById('time-select').value;
-    saveSettings(currentSettings);
-    refreshContent();
+    const timeSelect = document.getElementById('time-select');
+    const newTime = timeSelect.value;
+    
+    // Only refresh if the value actually changed
+    if (currentSettings.time !== newTime) {
+        currentSettings.time = newTime;
+        saveSettings(currentSettings);
+        refreshContent();
+    }
 }
 
 /**
@@ -628,11 +665,13 @@ async function loadMoreVideos() {
 /**
  * Refresh content, resetting videos
  */
+// Update the refreshContent function to reset state correctly
 function refreshContent() {
     afterToken = null;
     hasMore = true;
     allVideos = [];
     document.getElementById('video-grid').innerHTML = '';
+    hideLoading(); // Make sure any previous loading is hidden
     loadMoreVideos();
 }
 

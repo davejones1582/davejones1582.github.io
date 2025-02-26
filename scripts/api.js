@@ -46,20 +46,32 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
         onSuccess([], null, false);
         return;
     }
-
+    
     try {
+        // Debug logging
+        console.log(`Fetching videos for subreddits: ${activeSubreddits.join(', ')}`);
+        console.log(`Sort: ${settings.sort}, Time: ${settings.time}`);
+        
         // Build the multi-reddit string properly
         const multiSub = activeSubreddits.join('+');
-        const sort = settings.sort;
-        const timeParam = sort === 'top' ? `&t=${settings.time}` : '';
-
-        // Build the URL
+        const sort = settings.sort || 'hot'; // Default to hot if undefined
+        
+        // For top and controversial sorts, we need a time parameter
+        let timeParam = '';
+        if (sort === 'top' || sort === 'controversial') {
+            const time = settings.time || 'week'; // Default to week if undefined
+            timeParam = `&t=${time}`;
+        }
+        
+        // Build the URL with proper parameters
         let redditApiUrl = `https://www.reddit.com/r/${multiSub}/${sort}.json?limit=${BATCH_SIZE}&raw_json=1${timeParam}`;
         
         // Add after token if present
         if (afterToken) {
             redditApiUrl += `&after=${afterToken}`;
         }
+        
+        console.log(`API URL: ${redditApiUrl}`);
         
         // Use CORS proxy
         const url = `https://corsproxy.io/?${encodeURIComponent(redditApiUrl)}`;
