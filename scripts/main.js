@@ -1,7 +1,54 @@
 /**
  * main.js - Main entry point
  */
-import { DEFAULT_SUBREDDITS, fetchRedditVideos, fetchSubredditInfo } from './api.js';
+import { DEFAULT_SUBREDDITS, fetchRedditVideos, fetchSubredditInfo, isLocalMode }
+
+/**
+ * Refresh content, resetting videos
+ */
+function refreshContent() {
+    afterToken = null;
+    hasMore = true;
+    allVideos = [];
+    
+    // Clear grid and ensure loading spinner is hidden
+    document.getElementById('video-grid').innerHTML = '';
+    hideLoading();
+    
+    // Log current settings if debug mode is on
+    if (debugMode) {
+        console.log("Refreshing content with settings:", currentSettings);
+    }
+    
+    loadMoreVideos();
+}
+
+// Start the application when DOM is ready
+document.addEventListener('DOMContentLoaded', initializeApp);
+
+// For exposing closeLightbox to global scope
+window.closeLightbox = closeLightbox;
+// Expose navigate function globally
+window.navigate = (direction) => {
+    // Import the navigate function from lightbox.js directly
+    import('./lightbox.js').then(module => {
+        module.navigate(direction);
+    });
+};
+
+// For the default button that's using onclick in HTML
+window.loadDefaultSubreddits = loadDefaultSubreddits;
+// For debug mode toggle
+window.toggleDebugMode = toggleDebugMode;
+
+// Export for testing/debugging
+export {
+    refreshContent,
+    loadMoreVideos,
+    toggleFavorites,
+    toggleActiveSubreddit,
+    isVideoFavorited
+} from './api.js';
 import { 
     saveSettings, loadSettings, saveFavorites, loadFavorites, saveTheme, loadTheme 
 } from './storage.js';
@@ -34,11 +81,15 @@ let currentSettings = {
     autoplay: false
 };
 let currentTheme = 'dark';
+let debugMode = false;
 
 /**
  * Initialize the application
  */
 function initializeApp() {
+    // Show environment mode message
+    console.log(`Running in ${isLocalMode ? 'local' : 'online'} mode`);
+
     // Load saved settings
     const defaultSettings = {
         sort: 'hot',
@@ -117,6 +168,36 @@ function initializeApp() {
 }
 
 /**
+ * Toggle debug mode
+ */
+function toggleDebugMode() {
+    debugMode = !debugMode;
+    console.log(`Debug mode ${debugMode ? 'enabled' : 'disabled'}`);
+    
+    // Add a visual indicator
+    let indicator = document.getElementById('debug-indicator');
+    if (debugMode) {
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.id = 'debug-indicator';
+            indicator.style.position = 'fixed';
+            indicator.style.bottom = '10px';
+            indicator.style.right = '10px';
+            indicator.style.background = 'rgba(255, 0, 0, 0.7)';
+            indicator.style.color = 'white';
+            indicator.style.padding = '5px 10px';
+            indicator.style.borderRadius = '5px';
+            indicator.style.fontSize = '12px';
+            indicator.style.zIndex = '1000';
+            indicator.textContent = 'DEBUG';
+            document.body.appendChild(indicator);
+        }
+    } else if (indicator) {
+        indicator.remove();
+    }
+}
+
+/**
  * Set up event listeners
  */
 function initEventListeners() {
@@ -177,16 +258,6 @@ function initEventListeners() {
 }
 
 /**
- * Toggle theme
- */
-function toggleTheme() {
-    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    applyTheme(currentTheme);
-    updateThemeButton(themeToggleButton, currentTheme);
-    saveTheme(currentTheme);
-}
-
-/**
  * Initialize sort buttons
  */
 function initSortButtons() {
@@ -210,6 +281,16 @@ function initSortButtons() {
             refreshContent();
         });
     });
+}
+
+/**
+ * Toggle theme
+ */
+function toggleTheme() {
+    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    applyTheme(currentTheme);
+    updateThemeButton(themeToggleButton, currentTheme);
+    saveTheme(currentTheme);
 }
 
 /**
@@ -598,11 +679,21 @@ function toggleFavoriteItem(id) {
 /**
  * Load more videos
  */
+/**
+ * Load more videos
+ */
 async function loadMoreVideos() {
     if (!hasMore || isLoading) return;
     
     isLoading = true;
     showLoading();
+    
+    // Debug logging
+    if (debugMode) {
+        console.log(`Loading more videos with sort=${currentSettings.sort}, time=${currentSettings.time}`);
+        console.log(`Active subreddits: ${activeSubreddits.join(', ')}`);
+        console.log(`After token: ${afterToken || 'null'}`);
+    }
     
     fetchRedditVideos(
         activeSubreddits,
@@ -661,31 +752,3 @@ async function loadMoreVideos() {
         }
     );
 }
-
-/**
- * Refresh content, resetting videos
- */
-// Update the refreshContent function to reset state correctly
-function refreshContent() {
-    afterToken = null;
-    hasMore = true;
-    allVideos = [];
-    document.getElementById('video-grid').innerHTML = '';
-    hideLoading(); // Make sure any previous loading is hidden
-    loadMoreVideos();
-}
-
-// Start the application when DOM is ready
-document.addEventListener('DOMContentLoaded', initializeApp);
-
-// For exposing closeLightbox to global scope
-window.closeLightbox = closeLightbox;
-// Expose the navigation function globally
-window.navigate = (direction) => {
-    // Import the navigate function from lightbox.js directly
-    import('./lightbox.js').then(module => {
-        module.navigate(direction);
-    });
-};
-// For the default button that's using onclick in HTML
-window.loadDefaultSubreddits = loadDefaultSubreddits;
