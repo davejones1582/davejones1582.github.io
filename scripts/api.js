@@ -26,6 +26,54 @@ function getRedgifsEmbedUrl(url, muted = true) {
 }
 
 /**
+ * Create a properly encoded Reddit API URL
+ * 
+ * @param {Array} subreddits - List of subreddits
+ * @param {string} sort - Sort method
+ * @param {Object} options - Additional options
+ * @returns {string} Encoded URL
+ */
+function buildRedditUrl(subreddits, sort, options = {}) {
+    try {
+        // Use URL and URLSearchParams for safer URL construction
+        const baseUrl = new URL(`https://www.reddit.com/r/${subreddits.join('+')}/${sort}.json`);
+        
+        // Add query parameters
+        const params = baseUrl.searchParams;
+        params.append('limit', options.limit || BATCH_SIZE);
+        params.append('raw_json', '1');
+        
+        if (options.after) {
+            params.append('after', options.after);
+        }
+        
+        if (sort === 'top' && options.time) {
+            params.append('t', options.time);
+        }
+        
+        return baseUrl.toString();
+    } catch (error) {
+        console.error('Error building Reddit URL:', error);
+        // Fallback to manual string construction
+        const subredditStr = subreddits.join('+');
+        const timeParam = sort === 'top' && options.time ? `&t=${options.time}` : '';
+        const afterParam = options.after ? `&after=${options.after}` : '';
+        
+        return `https://www.reddit.com/r/${subredditStr}/${sort}.json?limit=${options.limit || BATCH_SIZE}&raw_json=1${afterParam}${timeParam}`;
+    }
+}
+
+/**
+ * Safely apply CORS proxy to URL
+ * 
+ * @param {string} url - Original URL
+ * @returns {string} Proxied URL
+ */
+function applyCorsProxy(url) {
+    return `https://corsproxy.io/?${encodeURIComponent(url)}`;
+}
+
+/**
  * Fetch videos from Reddit
  * 
  * @param {Array} activeSubreddits - List of active subreddits
@@ -41,18 +89,14 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
     }
 
     try {
-        // Fix URL construction for mobile compatibility
-        const encodedSubreddits = activeSubreddits.map(sub => encodeURIComponent(sub)).join('+');
-        const sort = settings.sort;
-        const timeParam = sort === 'top' ? `&t=${settings.time}` : '';
-        const afterParam = afterToken ? `&after=${encodeURIComponent(afterToken)}` : '';
+        // Build URL with new utility methods
+        const redditApiUrl = buildRedditUrl(activeSubreddits, settings.sort, {
+            time: settings.time,
+            after: afterToken
+        });
         
-        // Construct base URL with properly encoded components
-        const redditApiUrl = `https://www.reddit.com/r/${encodedSubreddits}/${sort}.json?limit=${BATCH_SIZE}&raw_json=1${afterParam}${timeParam}`;
+        const url = applyCorsProxy(redditApiUrl);
         
-        // Use the CORS proxy with proper encoding
-        const url = `https://corsproxy.io/?${encodeURIComponent(redditApiUrl)}`;
-
         const response = await fetch(url);
         
         if (!response.ok) {
@@ -173,9 +217,8 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
  */
 async function fetchSubredditInfo(subreddit) {
     try {
-        const encodedSubreddit = encodeURIComponent(subreddit);
-        const redditApiUrl = `https://www.reddit.com/r/${encodedSubreddit}/about.json`;
-        const url = `https://corsproxy.io/?${encodeURIComponent(redditApiUrl)}`;
+        const baseUrl = new URL(`https://www.reddit.com/r/${subreddit}/about.json`);
+        const url = applyCorsProxy(baseUrl.toString());
         
         const response = await fetch(url);
         
