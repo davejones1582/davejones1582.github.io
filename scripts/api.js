@@ -44,12 +44,13 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
         // Join subreddits with proper URL encoding for each
         const multiSub = activeSubreddits.map(sub => encodeURIComponent(sub)).join('+');
         const sort = settings.sort;
+        
+        // The CORS proxy passes additional parameters, so only encode the base URL
+        const baseUrl = `https://www.reddit.com/r/${multiSub}/${sort}.json?limit=${BATCH_SIZE}&raw_json=1`;
         const timeParam = sort === 'top' ? `&t=${settings.time}` : '';
-
-        // Critical fix: place timeParam and afterToken OUTSIDE encodeURIComponent
-        let url = `https://corsproxy.io/?${encodeURIComponent(
-            `https://www.reddit.com/r/${multiSub}/${sort}.json?limit=${BATCH_SIZE}&raw_json=1`
-        )}${afterToken ? `&after=${afterToken}` : ''}${timeParam}`;
+        
+        // Construct URL with params outside encodeURIComponent for proxy to pass them through
+        let url = `https://corsproxy.io/?${encodeURIComponent(baseUrl)}${afterToken ? `&after=${afterToken}` : ''}${timeParam}`;
         
         console.log("Fetching from URL:", url);
 
@@ -128,18 +129,12 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
                     thumbnailUrl = 'https://www.redditstatic.com/mweb2x/img/camera.png'; // Fallback
                 }
                 
-                // For Reddit videos, check if there's a separate audio track
+                // Improved Reddit video audio extraction
                 let audioUrl = null;
                 if (isRedditVideo && data.media.reddit_video.fallback_url) {
-                    const dashUrl = data.media.reddit_video.dash_url;
-                    if (dashUrl) {
-                        // Try to extract audio URL from DASH
-                        audioUrl = dashUrl.replace('DASHPlaylist.mpd', 'DASH_audio.mp4');
-                    } else {
-                        // Try to construct audio URL
-                        const videoUrl = data.media.reddit_video.fallback_url;
-                        audioUrl = videoUrl.replace(/DASH_\d+/, 'DASH_audio');
-                    }
+                    // Extract the base URL without resolution specification
+                    const videoBaseUrl = data.media.reddit_video.fallback_url.split('DASH_')[0];
+                    audioUrl = `${videoBaseUrl}DASH_audio.mp4`;
                 }
                 
                 return {
@@ -166,29 +161,125 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
 }
 
 /**
- * Fetch information about a subreddit
+ * Fetch information about a subreddit with improved error handling
  * 
  * @param {string} subreddit - Subreddit name
  * @returns {Promise<Object>} - Subreddit information
  */
 async function fetchSubredditInfo(subreddit) {
     try {
-        const response = await fetch(`https://corsproxy.io/?${encodeURIComponent(
+        const url = `https://corsproxy.io/?${encodeURIComponent(
             `https://www.reddit.com/r/${subreddit}/about.json`
-        )}`);
+        )}`;
+        
+        const response = await fetch(url);
+        
+        // Handle specific error cases
+        if (response.status === 404) {
+            console.warn(`Subreddit not found: ${subreddit}`);
+            return { 
+                name: subreddit, 
+                subscribers: 0,
+                exists: false,
+                errorCode: 404,
+                errorMessage: 'Subreddit not found'
+            };
+        }
+        
+        if (response.status === 403) {
+            console.warn(`Subreddit restricted or private: ${subreddit}`);
+            return { 
+                name: subreddit, 
+                subscribers: 0,
+                exists: true,
+                errorCode: 403,
+                errorMessage: 'Subreddit is private or restricted'
+            };
+        }
         
         if (!response.ok) {
             throw new Error(`Failed to fetch subreddit info: ${response.status}`);
         }
         
         const data = await response.json();
+        
+        if (!data || !data.data) {
+            throw new Error('Invalid response format');
+        }
+        
         return { 
             name: subreddit, 
-            subscribers: data.data?.subscribers || 0 
+            subscribers: data.data.subscribers || 0,
+            exists: true,
+            title: data.data.title || '',
+            description: data.data.public_description || '',
+            nsfw: data.data.over18 || false
         };
     } catch (error) {
         console.error(`Error fetching subreddit info for ${subreddit}:`, error);
-        return { name: subreddit, subscribers: 0 };
+        
+        // Provide informative return value even on error
+        return { 
+            name: subreddit, 
+            subscribers: 0,
+            exists: null, // Unknown state
+            errorMessage: error.message
+        };
+    }
+}
+
+/**
+ * Handle subreddit validation with user feedback
+ * 
+ * @param {string} subreddit - Subreddit name to validate
+ * @param {function} onSuccess - Success callback
+ * @param {function} onError - Error callback
+ */
+async function validateAndAddSubreddit(subreddit, onSuccess, onError) {
+    if (!subreddit || typeof subreddit !== 'string') {
+        onError('Please enter a valid subreddit name');
+        return;
+    }
+    
+    // Clean the input
+    const cleanSubreddit = subreddit.trim().replace(/^r\//, '');
+    
+    if (!cleanSubreddit) {
+        onError('Please enter a valid subreddit name');
+        return;
+    }
+    
+    try {
+        // Show loading indicator
+        showLoading();
+        
+        const info = await fetchSubredditInfo(cleanSubreddit);
+        
+        if (!info.exists) {
+            onError(`Subreddit r/${cleanSubreddit} not found`);
+            return;
+        }
+        
+        if (info.errorCode === 403) {
+            onError(`Subreddit r/${cleanSubreddit} is private or restricted`);
+            return;
+        }
+        
+        if (info.nsfw) {
+            // For NSFW subreddits, we should notify the user
+            const confirmAdd = confirm(`r/${cleanSubreddit} is an 18+ subreddit. Do you want to add it?`);
+            if (!confirmAdd) {
+                onError('NSFW subreddit not added');
+                return;
+            }
+        }
+        
+        // All checks passed
+        onSuccess(info);
+    } catch (error) {
+        onError(`Error validating subreddit: ${error.message}`);
+    } finally {
+        hideLoading();
     }
 }
 
@@ -196,5 +287,6 @@ export {
     DEFAULT_SUBREDDITS, 
     fetchRedditVideos,
     fetchSubredditInfo,
-    getRedgifsEmbedUrl
+    getRedgifsEmbedUrl,
+    validateAndAddSubreddit,
 };

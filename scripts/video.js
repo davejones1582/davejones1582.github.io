@@ -118,7 +118,7 @@ function createVideoIframe(url, isMuted) {
 }
 
 /**
- * Create a native video element for Reddit videos
+ * Create a native video element for Reddit videos with improved iOS compatibility
  * 
  * @param {string} videoUrl - Video URL
  * @param {string} audioUrl - Audio URL
@@ -127,105 +127,133 @@ function createVideoIframe(url, isMuted) {
  * @returns {HTMLVideoElement} - The video element
  */
 function createRedditVideo(videoUrl, audioUrl, isMuted, container) {
-    try {
-        const video = document.createElement('video');
-        video.className = 'lightbox-video';
-        video.controls = true;
-        video.autoplay = false; // Set to false initially for iOS
-        video.muted = isMuted;
-        video.playsInline = true;
-        video.setAttribute('webkit-playsinline', ''); // For older iOS versions
-        video.setAttribute('playsinline', '');
-        
-        // Create a play button overlay for iOS compatibility
-        const playButton = document.createElement('div');
-        playButton.className = 'manual-play-button';
-        playButton.innerHTML = '▶';
-        playButton.style.display = 'flex';
-        
-        // If there's an audio track
-        let audio = null;
-        if (audioUrl) {
-            try {
-                // Create audio element for sound
-                audio = document.createElement('audio');
-                audio.src = audioUrl;
-                audio.autoplay = false; // Set to false initially for iOS
-                audio.controls = false;
-                audio.muted = isMuted;
-                
-                // Add audio element
-                container.appendChild(audio);
-            } catch (e) {
-                console.error("Error creating audio element:", e);
-            }
-        }
-        
-        // Set video source after configuring
+    // Create video element
+    const video = document.createElement('video');
+    video.className = 'lightbox-video';
+    video.controls = true;
+    video.autoplay = false; // Start with autoplay off for iOS
+    video.muted = isMuted;
+    video.playsInline = true;
+    video.setAttribute('webkit-playsinline', '');
+    video.setAttribute('playsinline', '');
+    video.preload = 'auto';
+    
+    // Create play button overlay for iOS
+    const playButton = document.createElement('div');
+    playButton.className = 'manual-play-button';
+    playButton.innerHTML = '▶';
+    container.appendChild(playButton);
+    
+    // Handle audio element
+    let audio = null;
+    if (audioUrl) {
         try {
-            video.src = videoUrl;
+            audio = document.createElement('audio');
+            audio.src = audioUrl;
+            audio.autoplay = false;
+            audio.muted = isMuted;
+            audio.preload = 'auto';
+            container.appendChild(audio);
         } catch (e) {
-            console.error("Error setting video source:", e);
+            console.error("Error creating audio element:", e);
         }
+    }
+    
+    // Add error handling for video loading
+    video.addEventListener('error', (e) => {
+        console.error("Video load error:", e);
+        const errorMsg = document.createElement('div');
+        errorMsg.className = 'media-error-message';
+        errorMsg.textContent = 'Video failed to load. Click to open on Reddit.';
+        container.appendChild(errorMsg);
+    });
+    
+    // Set source after attaching event listeners
+    video.src = videoUrl;
+    
+    // Improved play button click handler for iOS
+    playButton.addEventListener('click', function() {
+        playButton.style.display = 'none';
         
-        // Add play button for user interaction
-        container.appendChild(playButton);
-        
-        // iOS-compatible playback initialization
-        playButton.addEventListener('click', function() {
-            playButton.style.display = 'none';
-            
-            // Try to play video
-            video.play().then(() => {
-                // If we have audio, sync and play it
+        // Try to play video with robust error handling
+        const playPromise = video.play();
+        if (playPromise !== undefined) {
+            playPromise.then(() => {
+                // Successfully started playing video
                 if (audio) {
+                    // Make sure audio is synced with video
                     audio.currentTime = video.currentTime;
-                    audio.play().catch(err => {
-                        console.error("Audio play failed:", err);
-                    });
+                    const audioPromise = audio.play();
+                    if (audioPromise !== undefined) {
+                        audioPromise.catch(e => {
+                            console.error("Audio play failed:", e);
+                            // If audio fails but video works, continue with video only
+                        });
+                    }
                 }
             }).catch(err => {
                 console.error("Video play failed:", err);
+                // Show play button again if autoplay fails
                 playButton.style.display = 'flex';
-            });
-        });
-        
-        // Handle audio-video sync if audio exists
-        if (audio) {
-            // Improved audio-video sync with iOS compatibility
-            video.addEventListener('play', () => {
-                audio.currentTime = video.currentTime;
-                audio.play().catch(e => {
-                    console.error("Audio sync play failed:", e);
-                });
-            });
-            
-            video.addEventListener('pause', () => {
-                audio.pause();
-            });
-            
-            video.addEventListener('seeked', () => { 
-                audio.currentTime = video.currentTime;
-                if (!video.paused) {
-                    audio.play().catch(e => console.error("Audio play failed after seek:", e));
+                
+                // For iOS, we might need user interaction
+                if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+                    // Add a message to encourage user interaction
+                    const tapMsg = document.createElement('div');
+                    tapMsg.textContent = 'Tap to play video';
+                    tapMsg.style.position = 'absolute';
+                    tapMsg.style.bottom = '10px';
+                    tapMsg.style.width = '100%';
+                    tapMsg.style.textAlign = 'center';
+                    tapMsg.style.color = 'white';
+                    tapMsg.style.background = 'rgba(0,0,0,0.5)';
+                    tapMsg.style.padding = '5px';
+                    container.appendChild(tapMsg);
                 }
             });
         }
+    });
+    
+    // Improved audio-video sync for iOS
+    if (audio) {
+        // Keep audio in sync with video
+        video.addEventListener('play', () => {
+            audio.currentTime = video.currentTime;
+            audio.play().catch(e => console.warn("Audio sync error:", e));
+        });
         
-        return video;
-    } catch (e) {
-        console.error("Error creating Reddit video:", e);
+        video.addEventListener('pause', () => {
+            audio.pause();
+        });
         
-        // Fallback to a simple video element
-        const video = document.createElement('video');
-        video.className = 'lightbox-video';
-        video.controls = true;
-        video.src = videoUrl;
-        video.playsInline = true;
-        video.setAttribute('playsinline', '');
+        // Critical for iOS: sync on timeupdate
+        video.addEventListener('timeupdate', () => {
+            // Only sync if difference is significant
+            if (Math.abs(video.currentTime - audio.currentTime) > 0.3) {
+                audio.currentTime = video.currentTime;
+            }
+        });
         
-        return video;
+        video.addEventListener('seeked', () => {
+            audio.currentTime = video.currentTime;
+            if (!video.paused) {
+                audio.play().catch(e => console.warn("Audio seek error:", e));
+            }
+        });
+        
+        // Handle potential iOS interruptions
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                // Resync when tab becomes visible again
+                if (!video.paused) {
+                    audio.currentTime = video.currentTime;
+                    audio.play().catch(e => {});
+                }
+            }
+        });
     }
+    
+    return video;
 }
 
 /**

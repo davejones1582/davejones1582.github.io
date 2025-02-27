@@ -24,14 +24,7 @@ function loadMobileCSS() {
 
 // Check for iOS Safari and initialize appropriate version
 async function initApp() {
-    if (isIOSSafari()) {
-        console.log("Detected iOS Safari, loading mobile version");
-        loadMobileCSS();
-        initializeMobileApp();
-    } else {
-        console.log("Loading standard version");
         initializeApp();
-    }
 }
 
 // App state
