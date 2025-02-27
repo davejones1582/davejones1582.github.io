@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Reddit Video Gallery</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+        }
+        
+        body {
+            background-color: #1a1a1a;
+            color: #f5f5f5;
+            padding-bottom: 80px;
+        }
+        
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background-color: #1a1a1a;
+            padding: 15px;
+            border-bottom: 1px solid #333;
+        }
+        
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .logo {
+            display: flex;
+            align-items: center;
+            font-size: 20px;
+            font-weight: bold;
+            color: #ff4500;
+        }
+        
+        .logo svg {
+            margin-right: 8px;
+        }
+        
+        .search-box {
+            position: relative;
+            margin-top: 15px;
+        }
+        
+        .search-box input {
+            width: 100%;
+            padding: 10px 15px;
+            border-radius: 20px;
+            border: none;
+            background-color: #333;
+            color: #f5f5f5;
+            font-size: 16px;
+        }
+        
+        .subreddit-list {
+            padding: 10px 0;
+            display: flex;
+            overflow-x: auto;
+            scrollbar-width: none;
+            -webkit-overflow-scrolling: touch;
+            gap: 10px;
+            padding: 0 15px;
+        }
+        
+        .subreddit-list::-webkit-scrollbar {
+            display: none;
+        }
+        
+        .subreddit-item {
+            background-color: #333;
+            color: #f5f5f5;
+            border-radius: 20px;
+            padding: 8px 15px;
+            white-space: nowrap;
+            font-size: 14px;
+        }
+        
+        .subreddit-item.active {
+            background-color: #ff4500;
+        }
+        
+        .video-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+            padding: 15px;
+        }
+        
+        @media (max-width: 600px) {
+            .video-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .video-card {
+            background-color: #232323;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+        
+        .video-container {
+            position: relative;
+            width: 100%;
+            padding-top: 56.25%; /* 16:9 Aspect Ratio */
+        }
+        
+        .video-container video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            background-color: #000;
+        }
+        
+        .video-info {
+            padding: 10px;
+        }
+        
+        .video-title {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 5px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        
+        .video-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: #999;
+        }
+        
+        .loader {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            font-size: 14px;
+            color: #999;
+        }
+        
+        .loading .loader {
+            display: block;
+        }
+        
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: #232323;
+            display: flex;
+            justify-content: space-around;
+            padding: 10px 0;
+            border-top: 1px solid #333;
+        }
+        
+        .nav-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            color: #999;
+            font-size: 12px;
+        }
+        
+        .nav-item.active {
+            color: #ff4500;
+        }
+        
+        .nav-item svg {
+            margin-bottom: 5px;
+        }
+        
+        .error-message {
+            display: none;
+            text-align: center;
+            padding: 20px;
+            color: #ff4545;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <div class="logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 24C18.6274 24 24 18.6274 24 12C24 5.37258 18.6274 0 12 0C5.37258 0 0 5.37258 0 12C0 18.6274 5.37258 24 12 24Z" fill="#FF4500"/>
+                    <path d="M19.5 11.9771C19.5 10.9546 18.66 10.1361 17.61 10.1361C17.13 10.1361 16.65 10.3171 16.34 10.6791C15.234 9.89008 13.724 9.39608 12.114 9.35108L12.944 6.10208L15.336 6.55808C15.359 7.15508 15.875 7.64908 16.488 7.64908C17.114 7.64908 17.63 7.12508 17.63 6.49908C17.63 5.87308 17.114 5.34908 16.488 5.34908C16.051 5.34908 15.649 5.61108 15.5 5.99108L12.756 5.48608C12.634 5.46408 12.512 5.49708 12.413 5.57108C12.314 5.65608 12.259 5.76708 12.248 5.89108L11.285 9.58108C9.642 9.61508 8.109 10.1091 6.992 10.9091C6.685 10.5351 6.191 10.3321 5.7 10.3321C4.65 10.3321 3.81 11.1506 3.81 12.1731C3.81 12.9466 4.337 13.6006 5.07 13.8726C5.048 14.0536 5.04 14.2346 5.04 14.4156C5.04 17.1646 8.164 19.3956 12.012 19.3956C15.86 19.3956 18.984 17.1646 18.984 14.4156C18.984 14.2346 18.976 14.0646 18.954 13.8836C19.687 13.6116 20.214 12.9466 20.214 12.1841C20.19 11.1616 19.35 11.9771 19.5 11.9771ZM8.035 13.1321C8.035 12.5061 8.551 11.9991 9.177 11.9991C9.803 11.9991 10.319 12.5061 10.319 13.1321C10.319 13.7581 9.803 14.2651 9.177 14.2651C8.551 14.2651 8.035 13.7581 8.035 13.1321ZM14.812 16.6641C14.13 17.3461 13.095 17.6971 12.012 17.6971C10.918 17.6971 9.895 17.3461 9.213 16.6641C9.059 16.5151 9.059 16.2751 9.213 16.1261C9.367 15.9771 9.61 15.9771 9.764 16.1261C10.291 16.6541 11.104 16.9261 12.012 16.9261C12.92 16.9261 13.746 16.6431 14.26 16.1261C14.414 15.9771 14.657 15.9771 14.811 16.1261C14.954 16.2751 14.965 16.5151 14.812 16.6641ZM14.8 14.2761C14.174 14.2761 13.658 13.7691 13.658 13.1431C13.658 12.5171 14.174 12.0101 14.8 12.0101C15.426 12.0101 15.942 12.5171 15.942 13.1431C15.942 13.7691 15.437 14.2761 14.8 14.2761Z" fill="white"/>
+                </svg>
+                <span>Video Gallery</span>
+            </div>
+            <div id="refresh" style="padding: 5px;">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+            </div>
+        </div>
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="Search videos or enter a subreddit">
+        </div>
+    </header>
+    
+    <div class="subreddit-list" id="subredditList">
+        <div class="subreddit-item active" data-subreddit="all">All</div>
+        <div class="subreddit-item" data-subreddit="videos">r/videos</div>
+        <div class="subreddit-item" data-subreddit="PublicFreakout">r/PublicFreakout</div>
+        <div class="subreddit-item" data-subreddit="interestingasfuck">r/interestingasfuck</div>
+        <div class="subreddit-item" data-subreddit="nextfuckinglevel">r/nextfuckinglevel</div>
+        <div class="subreddit-item" data-subreddit="Damnthatsinteresting">r/Damnthatsinteresting</div>
+        <div class="subreddit-item" data-subreddit="oddlysatisfying">r/oddlysatisfying</div>
+        <div class="subreddit-item" data-subreddit="funny">r/funny</div>
+    </div>
+    
+    <div class="video-grid" id="videoGrid"></div>
+    
+    <div class="loader" id="loader">Loading more videos...</div>
+    <div class="error-message" id="errorMessage">Failed to load videos. Please try again later.</div>
+    
+    <div class="bottom-nav">
+        <div class="nav-item active">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+            </svg>
+            <span>Home</span>
+        </div>
+        <div class="nav-item">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon>
+            </svg>
+            <span>Favorites</span>
+        </div>
+        <div class="nav-item">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+            </svg>
+            <span>Library</span>
+        </div>
+        <div class="nav-item">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span>Settings</span>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const videoGrid = document.getElementById('videoGrid');
+            const loader = document.getElementById('loader');
+            const errorMessage = document.getElementById('errorMessage');
+            const subredditList = document.getElementById('subredditList');
+            const searchInput = document.getElementById('searchInput');
+            const refreshButton = document.getElementById('refresh');
+            
+            let currentSubreddit = 'all';
+            let after = '';
+            let isLoading = false;
+            let hasMore = true;
+            
+            // Load initial videos
+            loadVideos();
+            
+            // Handle subreddit selection
+            subredditList.addEventListener('click', function(e) {
+                if (e.target.classList.contains('subreddit-item')) {
+                    const subreddit = e.target.getAttribute('data-subreddit');
+                    
+                    // Update active class
+                    document.querySelector('.subreddit-item.active').classList.remove('active');
+                    e.target.classList.add('active');
+                    
+                    // Reset and load new videos
+                    currentSubreddit = subreddit;
+                    videoGrid.innerHTML = '';
+                    after = '';
+                    hasMore = true;
+                    loadVideos();
+                }
+            });
+            
+            // Handle search
+            searchInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    const searchTerm = searchInput.value.trim();
+                    if (searchTerm.startsWith('r/')) {
+                        // Treat as subreddit
+                        currentSubreddit = searchTerm.substring(2);
+                    } else if (searchTerm) {
+                        // Treat as search term
+                        currentSubreddit = 'all';
+                        // Would add search functionality here
+                    }
+                    
+                    // Reset and load new videos
+                    videoGrid.innerHTML = '';
+                    after = '';
+                    hasMore = true;
+                    loadVideos();
+                    
+                    // Update subreddit list if needed
+                    const existingItem = Array.from(document.querySelectorAll('.subreddit-item')).find(
+                        item => item.getAttribute('data-subreddit') === currentSubreddit
+                    );
+                    
+                    if (existingItem) {
+                        document.querySelector('.subreddit-item.active').classList.remove('active');
+                        existingItem.classList.add('active');
+                    } else if (searchTerm.startsWith('r/')) {
+                        document.querySelector('.subreddit-item.active').classList.remove('active');
+                        const newItem = document.createElement('div');
+                        newItem.className = 'subreddit-item active';
+                        newItem.setAttribute('data-subreddit', currentSubreddit);
+                        newItem.textContent = searchTerm;
+                        subredditList.appendChild(newItem);
+                    }
+                }
+            });
+            
+            // Handle refresh
+            refreshButton.addEventListener('click', function() {
+                videoGrid.innerHTML = '';
+                after = '';
+                hasMore = true;
+                loadVideos();
+            });
+            
+            // Handle infinite scroll
+            window.addEventListener('scroll', function() {
+                if (isLoading || !hasMore) return;
+                
+                const scrollY = window.scrollY;
+                const windowHeight = window.innerHeight;
+                const documentHeight = document.documentElement.scrollHeight;
+                
+                if (scrollY + windowHeight >= documentHeight - 300) {
+                    loadVideos();
+                }
+            });
+            
+            // Main function to load videos
+            function loadVideos() {
+                if (isLoading || !hasMore) return;
+                
+                isLoading = true;
+                loader.style.display = 'block';
+                errorMessage.style.display = 'none';
+                
+                const url = `https://www.reddit.com/r/${currentSubreddit}.json?limit=10${after ? '&after=' + after : ''}`;
+                
+                fetch(url)
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error('Network response was not ok');
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        after = data.data.after;
+                        hasMore = !!after;
+                        
+                        // Filter for posts with videos
+                        const posts = data.data.children.filter(post => {
+                            const postData = post.data;
+                            return (
+                                postData.is_video || 
+                                (postData.url && (
+                                    postData.url.includes('v.redd.it') || 
+                                    postData.url.includes('youtube.com') || 
+                                    postData.url.includes('youtu.be') ||
+                                    postData.url.includes('streamable.com') ||
+                                    postData.url.includes('.mp4')
+                                ))
+                            );
+                        });
+                        
+                        // Add videos to grid
+                        posts.forEach(post => {
+                            const postData = post.data;
+                            
+                            // Create video card
+                            const videoCard = document.createElement('div');
+                            videoCard.className = 'video-card';
+                            
+                            // Video source
+                            let videoSrc = '';
+                            let isYouTube = false;
+                            let thumbnailSrc = postData.thumbnail;
+                            
+                            if (postData.is_video && postData.media && postData.media.reddit_video) {
+                                videoSrc = postData.media.reddit_video.fallback_url;
+                            } else if (postData.url.includes('youtube.com') || postData.url.includes('youtu.be')) {
+                                isYouTube = true;
+                                // Extract YouTube ID - this is a simplified approach
+                                let youtubeId = '';
+                                if (postData.url.includes('youtube.com')) {
+                                    youtubeId = postData.url.split('v=')[1]?.split('&')[0];
+                                } else if (postData.url.includes('youtu.be')) {
+                                    youtubeId = postData.url.split('youtu.be/')[1]?.split('?')[0];
+                                }
+                                
+                                if (youtubeId) {
+                                    thumbnailSrc = `https://img.youtube.com/vi/${youtubeId}/hqdefault.jpg`;
+                                }
+                            } else if (postData.url.includes('.mp4')) {
+                                videoSrc = postData.url;
+                            }
+                            
+                            // Create video container
+                            const videoContainer = document.createElement('div');
+                            videoContainer.className = 'video-container';
+                            
+                            if (videoSrc && !isYouTube) {
+                                // Direct video source
+                                const video = document.createElement('video');
+                                video.controls = true;
+                                video.poster = thumbnailSrc;
+                                video.preload = 'none';
+                                video.playsInline = true;
+                                
+                                const source = document.createElement('source');
+                                source.src = videoSrc;
+                                source.type = 'video/mp4';
+                                
+                                video.appendChild(source);
+                                videoContainer.appendChild(video);
+                            } else {
+                                // Just show thumbnail with play button overlay for YouTube or other videos
+                                const thumbnail = document.createElement('img');
+                                thumbnail.src = thumbnailSrc || '/api/placeholder/300/168';
+                                thumbnail.alt = postData.title;
+                                thumbnail.style.position = 'absolute';
+                                thumbnail.style.top = '0';
+                                thumbnail.style.left = '0';
+                                thumbnail.style.width = '100%';
+                                thumbnail.style.height = '100%';
+                                thumbnail.style.objectFit = 'cover';
+                                
+                                const playButton = document.createElement('div');
+                                playButton.style.position = 'absolute';
+                                playButton.style.top = '50%';
+                                playButton.style.left = '50%';
+                                playButton.style.transform = 'translate(-50%, -50%)';
+                                playButton.style.width = '60px';
+                                playButton.style.height = '60px';
+                                playButton.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+                                playButton.style.borderRadius = '50%';
+                                playButton.style.display = 'flex';
+                                playButton.style.alignItems = 'center';
+                                playButton.style.justifyContent = 'center';
+                                
+                                playButton.innerHTML = `
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="white">
+                                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                                    </svg>
+                                `;
+                                
+                                videoContainer.appendChild(thumbnail);
+                                videoContainer.appendChild(playButton);
+                                
+                                // Make the thumbnail clickable to open original post
+                                videoContainer.style.cursor = 'pointer';
+                                videoContainer.addEventListener('click', () => {
+                                    window.open(`https://www.reddit.com${postData.permalink}`, '_blank');
+                                });
+                            }
+                            
+                            // Create video info section
+                            const videoInfo = document.createElement('div');
+                            videoInfo.className = 'video-info';
+                            
+                            const videoTitle = document.createElement('div');
+                            videoTitle.className = 'video-title';
+                            videoTitle.textContent = postData.title;
+                            
+                            const videoMeta = document.createElement('div');
+                            videoMeta.className = 'video-meta';
+                            
+                            const subredditName = document.createElement('span');
+                            subredditName.textContent = `r/${postData.subreddit}`;
+                            
+                            const upvotes = document.createElement('span');
+                            upvotes.textContent = `${formatNumber(postData.ups)} upvotes`;
+                            
+                            videoMeta.appendChild(subredditName);
+                            videoMeta.appendChild(upvotes);
+                            
+                            videoInfo.appendChild(videoTitle);
+                            videoInfo.appendChild(videoMeta);
+                            
+                            videoCard.appendChild(videoContainer);
+                            videoCard.appendChild(videoInfo);
+                            
+                            videoGrid.appendChild(videoCard);
+                        });
+                        
+                        isLoading = false;
+                        loader.style.display = 'none';
+                        
+                        // If no videos were found but we have more pages, try loading more
+                        if (posts.length === 0 && hasMore) {
+                            loadVideos();
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching videos:', error);
+                        isLoading = false;
+                        loader.style.display = 'none';
+                        errorMessage.style.display = 'block';
+                    });
+            }
+            
+            // Helper function to format numbers
+            function formatNumber(num) {
+                if (num >= 1000000) {
+                    return (num / 1000000).toFixed(1) + 'm';
+                }
+                if (num >= 1000) {
+                    return (num / 1000).toFixed(1) + 'k';
+                }
+                return num.toString();
+            }
+            
+            // Auto play/pause videos when they enter/exit the viewport
+            const observerOptions = {
+                root: null,
+                rootMargin: '0px',
+                threshold: 0.5
+            };
+            
+            const observer = new IntersectionObserver((entries) => {
+                entries.forEach(entry => {
+                    const video = entry.target;
+                    if (entry.isIntersecting) {
+                        if (video.paused) {
+                            // Only try to play if user has interacted with the page
+                            if (document.documentElement.classList.contains('user-interacted')) {
+                                video.play().catch(e => console.log('Auto-play prevented:', e));
+                            }
+                        }
+                    } else {
+                        if (!video.paused) {
+                            video.pause();
+                        }
+                    }
+                });
+            }, observerOptions);
+            
+            // Add user interaction flag for autoplay
+            document.addEventListener('click', function() {
+                document.documentElement.classList.add('user-interacted');
+                // Attempt to play visible videos after interaction
+                document.querySelectorAll('video').forEach(video => {
+                    if (isElementInViewport(video) && video.paused) {
+                        video.play().catch(e => console.log('Play prevented:', e));
+                    }
+                });
+            });
+            
+            // Observe videos as they are added to the DOM
+            const videoGridObserver = new MutationObserver(mutations => {
+                mutations.forEach(mutation => {
+                    if (mutation.type === 'childList') {
+                        mutation.addedNodes.forEach(node => {
+                            if (node.nodeType === 1 && node.classList.contains('video-card')) {
+                                const video = node.querySelector('video');
+                                if (video) {
+                                    observer.observe(video);
+                                }
+                            }
+                        });
+                    }
+                });
+            });
+            
+            videoGridObserver.observe(videoGrid, { childList: true });
+            
+            // Helper function to check if element is in viewport
+            function isElementInViewport(el) {
+                const rect = el.getBoundingClientRect();
+                return (
+                    rect.top >= 0 &&
+                    rect.left >= 0 &&
+                    rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
+                    rect.right <= (window.innerWidth || document.documentElement.clientWidth)
+                );
+            }
+        });
+    </script>
+</body>
+</html>
