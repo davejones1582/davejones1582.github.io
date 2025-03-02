@@ -8,9 +8,10 @@
     <meta name="theme-color" content="#121212">
     <title>Reddit Video Gallery</title>
     <link rel="stylesheet" href="./styles/main.css">
+    <link rel="stylesheet" href="./styles/profile.css">
     <link rel="manifest" href="./manifest.json">
-    <link rel="icon" type="image/png" href="./icons/icon-192x192.png">
-    <link rel="apple-touch-icon" href="./icons/icon-192x192.png">
+    <link rel="icon" type="image/png" href="./icons/film-icon-192.png">
+    <link rel="apple-touch-icon" href="./icons/film-icon-192.png">
 </head>
 <body>
     <header>
@@ -20,7 +21,7 @@
                 <button id="sound-toggle" class="icon-button" aria-label="Toggle sound">🔇</button>
                 <button id="favorites-toggle" class="icon-button" aria-label="Show favorites">⭐</button>
                 <button id="grid-size-toggle" class="icon-button" aria-label="Toggle grid size">▦</button>
-                <button id="defaults-button" class="icon-button" aria-label="Load defaults">🔄</button>
+                <button id="sidebar-toggle" class="icon-button" aria-label="Open sidebar">☰</button>
                 <!-- Theme toggle button will be added by JavaScript -->
             </div>
         </div>
@@ -49,10 +50,69 @@
         </div>
     </div>
 
-    <div class="error-message" id="error-message"></div>
-    <div class="loading-spinner" id="loading-spinner"></div>
+    <div class="main-container">
+        <div class="content-area">
+            <!-- Trending section -->
+            <section id="trending-section" class="discovery-section">
+                <div class="discovery-header">
+                    <div>
+                        <h2>Trending Now</h2>
+                        <div class="discovery-subtitle">Popular content from across Reddit</div>
+                    </div>
+                    <a href="#trending" class="see-all-link">See All</a>
+                </div>
+                <div class="category-tabs" id="category-tabs">
+                    <button class="category-tab active" data-category="all">All</button>
+                    <button class="category-tab" data-category="gaming">Gaming</button>
+                    <button class="category-tab" data-category="entertainment">Entertainment</button>
+                    <button class="category-tab" data-category="sports">Sports</button>
+                    <button class="category-tab" data-category="educational">Educational</button>
+                    <button class="category-tab" data-category="animals">Animals</button>
+                </div>
+                <div class="carousel" id="trending-carousel">
+                    <!-- Trending videos will be added here dynamically -->
+                    <div class="carousel-loading">Loading trending content...</div>
+                </div>
+            </section>
 
-    <div class="video-grid" id="video-grid"></div>
+            <!-- Recommendations section -->
+            <section id="recommendations-section" class="discovery-section">
+                <div class="discovery-header">
+                    <div>
+                        <h2>Recommended For You</h2>
+                        <div class="discovery-subtitle">Based on what you've watched</div>
+                    </div>
+                    <a href="#recommendations" class="see-all-link">See All</a>
+                </div>
+                <div class="carousel" id="recommendations-carousel">
+                    <!-- Recommended videos will be added here dynamically -->
+                    <div class="carousel-loading">Finding recommendations...</div>
+                </div>
+            </section>
+
+            <div class="error-message" id="error-message"></div>
+            <div class="loading-spinner" id="loading-spinner"></div>
+
+            <div class="video-grid" id="video-grid"></div>
+        </div>
+
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>Profile</h2>
+                <button id="close-sidebar" class="icon-button" aria-label="Close sidebar">×</button>
+            </div>
+            <div class="sidebar-content">
+                <!-- Profile UI will be added here dynamically -->
+                <div id="profile-container"></div>
+                
+                <!-- Collections UI will be added here dynamically -->
+                <div id="collections-container"></div>
+                
+                <!-- Watch history UI will be added here dynamically -->
+                <div id="history-container"></div>
+            </div>
+        </aside>
+    </div>
 
     <div class="lightbox" id="lightbox" onclick="closeLightbox()">
         <div class="lightbox-content" onclick="event.stopPropagation()">
@@ -61,6 +121,10 @@
             <div class="lightbox-nav lightbox-next" onclick="navigate(1)">❯</div>
             <div id="media-container"></div>
             <div class="lightbox-metadata" id="lightbox-metadata"></div>
+            <div id="related-videos" class="lightbox-related">
+                <h3>Related Videos</h3>
+                <div class="related-videos-container"></div>
+            </div>
         </div>
     </div>
 

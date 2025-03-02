@@ -1,0 +1,102 @@
+/**
+ * layout.css - Page layout with sidebar and main content
+ */
+
+/* Main container layout */
+.main-container {
+    display: flex;
+    width: 100%;
+    position: relative;
+    min-height: calc(100vh - 160px);
+}
+
+.content-area {
+    flex: 1;
+    width: 100%;
+    transition: margin-right 0.3s ease;
+}
+
+/* Sidebar */
+.sidebar {
+    position: fixed;
+    top: 0;
+    right: 0;
+    width: 320px;
+    height: 100vh;
+    background-color: var(--surface-color);
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+    box-shadow: -5px 0 15px var(--shadow-color);
+    z-index: 500;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar.open {
+    transform: translateX(0);
+}
+
+.sidebar-header {
+    padding: 16px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: sticky;
+    top: 0;
+    background-color: var(--surface-color);
+    z-index: 10;
+}
+
+.sidebar-header h2 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+}
+
+.sidebar-content {
+    padding: 16px;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .sidebar {
+        width: 280px;
+    }
+
+    .content-area.sidebar-open {
+        margin-right: 280px;
+    }
+}
+
+@media (max-width: 480px) {
+    .sidebar {
+        width: 100%;
+    }
+}
+
+/* Loading states for carousels */
+.carousel-loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    width: 100%;
+    min-height: 200px;
+    padding: 20px;
+    color: var(--text-secondary);
+}
+
+/* Related videos in lightbox */
+#related-videos {
+    margin-top: 20px;
+    max-width: 80vw;
+}
+
+/* Video grid adjustments when discovery is shown */
+.discovery-section + .discovery-section + .video-grid {
+    margin-top: 20px;
+}

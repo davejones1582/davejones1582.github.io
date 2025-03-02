@@ -1,30 +1,61 @@
 /**
- * main.js - Main entry point with mobile detection
+ * main.js - Enhanced main entry point with authentication and content discovery
  */
 import { DEFAULT_SUBREDDITS, fetchRedditVideos, fetchSubredditInfo } from './api.js';
 import { 
-    saveSettings, loadSettings, saveFavorites, loadFavorites, saveTheme, loadTheme 
+    saveSettings, loadSettings, saveTheme, loadTheme 
 } from './storage.js';
 import { 
     showError, showLoading, hideLoading, renderVideos, updateSortButtons, 
-    renderSubredditTags, initThemeToggle, updateThemeButton, applyTheme 
+    renderSubredditTags, initThemeToggle, updateThemeButton, applyTheme, showToast 
 } from './ui.js';
-import { updateMuteState } from './video.js';
+import { updateMuteState, optimizeVideoMemory } from './video.js';
 import { showLightbox, closeLightbox, navigate } from './lightbox.js';
-import { isIOSSafari } from './mobile-detection.js';
+import { isIOSSafari, isMobileDevice } from './mobile-detection.js';
 import { initializeMobileApp } from './mobile-main.js';
+import { initAuth } from './auth.js';
+import { 
+    initializeCollections,
+    addToWatchHistory,
+    isInCollection,
+    toggleFavorite,
+    getWatchHistory
+} from './content-manager.js';
+import {
+    createProfileUI, 
+    createCollectionsUI, 
+    createWatchHistoryUI
+} from './profile-ui.js';
+import {
+    initDiscovery, 
+    loadRelatedVideos,
+    addRelatedVideosStyles
+} from './discovery-ui.js';
 
-// Load the mobile-specific CSS
-function loadMobileCSS() {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = './styles/mobile.css';
-    document.head.appendChild(link);
+// Load additional CSS
+function loadAdditionalCSS() {
+    // Load mobile CSS if needed
+    if (isMobileDevice()) {
+        const mobileLink = document.createElement('link');
+        mobileLink.rel = 'stylesheet';
+        mobileLink.href = './styles/mobile.css';
+        document.head.appendChild(mobileLink);
+    }
+    
+    // Load layout CSS
+    const layoutLink = document.createElement('link');
+    layoutLink.rel = 'stylesheet';
+    layoutLink.href = './styles/layout.css';
+    document.head.appendChild(layoutLink);
 }
 
 // Check for iOS Safari and initialize appropriate version
 async function initApp() {
+    if (isIOSSafari()) {
+        initializeMobileApp();
+    } else {
         initializeApp();
+    }
 }
 
 // App state
@@ -35,18 +66,19 @@ let currentVideoIndex = 0;
 let afterToken = null;
 let isLoading = false;
 let hasMore = true;
-let favoriteVideos = [];
 let showingFavorites = false;
 let searchTimeout;
 let observer;
 let isMuted = true;
 let themeToggleButton;
+let isSidebarOpen = false;
 let currentSettings = {
     sort: 'hot',
     time: 'week',
     subreddits: [],
     compactView: false,
-    autoplay: false
+    autoplay: false,
+    showDiscovery: true
 };
 let currentTheme = 'dark';
 
@@ -54,21 +86,26 @@ let currentTheme = 'dark';
  * Initialize the application
  */
 function initializeApp() {
-    // All the existing initialization code...
-    // (original content of initializeApp from the original main.js)
+    // Initialize auth system
+    initAuth();
+    
+    // Initialize collections system
+    initializeCollections();
+    
+    // Load CSS
+    loadAdditionalCSS();
+    
     // Load saved settings
     const defaultSettings = {
         sort: 'hot',
         time: 'week',
         subreddits: [],
         compactView: false,
-        autoplay: false
+        autoplay: false,
+        showDiscovery: true
     };
     
     currentSettings = loadSettings(defaultSettings);
-    
-    // Load favorites
-    favoriteVideos = loadFavorites();
     
     // Load theme
     currentTheme = loadTheme('dark');
@@ -109,8 +146,42 @@ function initializeApp() {
         videoGrid.classList.add('compact');
     }
     
+    // Initialize discovery sections if enabled
+    if (currentSettings.showDiscovery) {
+        initDiscovery(selectVideo);
+    } else {
+        document.getElementById('trending-section').style.display = 'none';
+        document.getElementById('recommendations-section').style.display = 'none';
+    }
+    
+    // Initialize sidebar
+    initSidebar();
+    
+    // Add styles for related videos
+    addRelatedVideosStyles();
+    
     // Initialize infinite scroll
     initObserver();
+    
+    // Register service worker
+    registerServiceWorker();
+}
+
+/**
+ * Register service worker for offline support
+ */
+function registerServiceWorker() {
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/service-worker.js')
+                .then(registration => {
+                    console.log('ServiceWorker registered with scope:', registration.scope);
+                })
+                .catch(error => {
+                    console.error('ServiceWorker registration failed:', error);
+                });
+        });
+    }
 }
 
 /**
@@ -135,10 +206,10 @@ function initEventListeners() {
         gridToggle.addEventListener('click', toggleGridSize);
     }
     
-    // Default button
-    const defaultsButton = document.getElementById('defaults-button');
-    if (defaultsButton) {
-        defaultsButton.addEventListener('click', loadDefaultSubreddits);
+    // Sidebar toggle button
+    const sidebarToggle = document.getElementById('sidebar-toggle');
+    if (sidebarToggle) {
+        sidebarToggle.addEventListener('click', toggleSidebar);
     }
     
     // Quick-add subreddit input
@@ -171,6 +242,89 @@ function initEventListeners() {
             }
         }, { passive: false });
     }
+}
+
+/**
+ * Initialize sidebar
+ */
+function initSidebar() {
+    // Create profile, collections, and history components
+    const profileContainer = document.getElementById('profile-container');
+    const collectionsContainer = document.getElementById('collections-container');
+    const historyContainer = document.getElementById('history-container');
+    
+    if (profileContainer) {
+        profileContainer.appendChild(createProfileUI());
+    }
+    
+    if (collectionsContainer) {
+        collectionsContainer.appendChild(createCollectionsUI(handleCollectionSelect));
+    }
+    
+    if (historyContainer) {
+        historyContainer.appendChild(createWatchHistoryUI(selectVideo, allVideos));
+    }
+    
+    // Close sidebar button
+    const closeButton = document.getElementById('close-sidebar');
+    if (closeButton) {
+        closeButton.addEventListener('click', closeSidebar);
+    }
+    
+    // Close sidebar when clicking outside
+    document.addEventListener('click', (e) => {
+        if (isSidebarOpen && !e.target.closest('#sidebar') && !e.target.closest('#sidebar-toggle')) {
+            closeSidebar();
+        }
+    });
+}
+
+/**
+ * Toggle sidebar visibility
+ */
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const contentArea = document.querySelector('.content-area');
+    
+    if (sidebar) {
+        if (isSidebarOpen) {
+            sidebar.classList.remove('open');
+            contentArea.classList.remove('sidebar-open');
+        } else {
+            sidebar.classList.add('open');
+            contentArea.classList.add('sidebar-open');
+        }
+        
+        isSidebarOpen = !isSidebarOpen;
+    }
+}
+
+/**
+ * Close sidebar
+ */
+function closeSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const contentArea = document.querySelector('.content-area');
+    
+    if (sidebar) {
+        sidebar.classList.remove('open');
+        contentArea.classList.remove('sidebar-open');
+        isSidebarOpen = false;
+    }
+}
+
+/**
+ * Handle collection selection from sidebar
+ * 
+ * @param {string} collectionId - Collection ID
+ */
+function handleCollectionSelect(collectionId) {
+    console.log(`Selected collection: ${collectionId}`);
+    // Implement viewing collection videos
+    closeSidebar();
+    
+    // TODO: Add collection view implementation
+    showToast('Collection view will be added in a future update', 'info');
 }
 
 /**
@@ -211,26 +365,49 @@ function initSearchListener() {
             const query = e.target.value.toLowerCase();
             const filtered = allVideos.filter(video => 
                 video.title.toLowerCase().includes(query) ||
-                video.subreddit.toLowerCase().includes(query)
+                video.subreddit.toLowerCase().includes(query) ||
+                (video.author && video.author.toLowerCase().includes(query))
             );
             renderVideos(
                 filtered,
-                toggleFavoriteItem,
-                (index) => {
-                    currentVideoIndex = index;
-                    showLightbox(
-                        filtered[index],
-                        index,
-                        filtered,
-                        isMuted,
-                        isVideoFavorited,
-                        toggleFavoriteItem
-                    );
-                },
-                isVideoFavorited
+                handleFavoriteToggle,
+                selectVideo,
+                (id) => isInCollection('favorites', id)
             );
         }, 300);
     });
+}
+
+/**
+ * Handle favorite toggling
+ * 
+ * @param {string} videoId - Video ID to toggle
+ */
+async function handleFavoriteToggle(videoId) {
+    const video = allVideos.find(v => v.id === videoId);
+    
+    if (!video) return;
+    
+    const newStatus = await toggleFavorite(video);
+    
+    // Update UI
+    const lightboxFavBtn = document.querySelector('.lightbox-favorite');
+    if (lightboxFavBtn && lightboxFavBtn.dataset.id === videoId) {
+        lightboxFavBtn.textContent = newStatus ? '★' : '☆';
+        lightboxFavBtn.classList.toggle('active', newStatus);
+    }
+    
+    // Update card if in grid
+    const favBtns = document.querySelectorAll(`.favorite-button[data-id="${videoId}"]`);
+    favBtns.forEach(btn => {
+        btn.textContent = newStatus ? '★' : '☆';
+        btn.classList.toggle('active', newStatus);
+    });
+    
+    // Re-render if showing favorites
+    if (showingFavorites) {
+        refreshContent();
+    }
 }
 
 /**
@@ -461,118 +638,59 @@ function toggleFavorites() {
         observer = null;
     }
     
-    if (showingFavorites) {
-        renderVideos(
-            favoriteVideos,
-            toggleFavoriteItem,
-            (index) => {
-                currentVideoIndex = index;
-                showLightbox(
-                    favoriteVideos[index],
-                    index,
-                    favoriteVideos,
-                    isMuted,
-                    isVideoFavorited,
-                    toggleFavoriteItem
-                );
-            },
-            isVideoFavorited
-        );
-    } else {
-        renderVideos(
-            allVideos,
-            toggleFavoriteItem,
-            (index) => {
-                currentVideoIndex = index;
-                showLightbox(
-                    allVideos[index],
-                    index,
-                    allVideos,
-                    isMuted,
-                    isVideoFavorited,
-                    toggleFavoriteItem
-                );
-            },
-            isVideoFavorited
-        );
-        // Reconnect infinite scroll only when showing all videos
-        initObserver();
-    }
+    refreshContent();
     
     // Update sort buttons status
     updateSortButtons(currentSettings.sort, showingFavorites);
 }
 
 /**
- * Check if a video is favorited
+ * Select a video
  * 
- * @param {string} id - Video ID
- * @returns {boolean} Is favorited
+ * @param {Object|number} videoOrIndex - Video object or index
  */
-function isVideoFavorited(id) {
-    return favoriteVideos.some(f => f.id === id);
-}
-
-/**
- * Toggle favorite item
- * 
- * @param {string} id - Video ID
- */
-function toggleFavoriteItem(id) {
-    const videoIndex = allVideos.findIndex(v => v.id === id);
-    const video = videoIndex !== -1 ? allVideos[videoIndex] : 
-                  favoriteVideos.find(f => f.id === id);
+function selectVideo(videoOrIndex) {
+    // If we have an index, get the video object
+    let video, index;
     
-    if (!video) return;
-    
-    const favIndex = favoriteVideos.findIndex(f => f.id === id);
-    
-    let isFavorited;
-    if (favIndex === -1) {
-        // Add to favorites
-        favoriteVideos.push(video);
-        isFavorited = true;
+    if (typeof videoOrIndex === 'number') {
+        index = videoOrIndex;
+        video = showingFavorites ? 
+            allVideos.filter(v => isInCollection('favorites', v.id))[index] : 
+            allVideos[index];
     } else {
-        // Remove from favorites
-        favoriteVideos.splice(favIndex, 1);
-        isFavorited = false;
+        video = videoOrIndex;
+        // Find index in current list
+        index = allVideos.findIndex(v => v.id === video.id);
     }
     
-    saveFavorites(favoriteVideos);
-    
-    // Update UI
-    const lightboxFavBtn = document.querySelector('.lightbox-favorite');
-    if (lightboxFavBtn && lightboxFavBtn.dataset.id === id) {
-        lightboxFavBtn.textContent = isFavorited ? '★' : '☆';
-        lightboxFavBtn.classList.toggle('active', isFavorited);
+    if (!video) {
+        showError('Video not found');
+        return;
     }
     
-    // Update card if in grid
-    const favBtn = document.querySelector(`.favorite-button[data-id="${id}"]`);
-    if (favBtn) {
-        favBtn.textContent = isFavorited ? '★' : '☆';
-        favBtn.classList.toggle('active', isFavorited);
-    }
+    currentVideoIndex = index;
     
-    // Re-render if showing favorites
-    if (showingFavorites) {
-        renderVideos(
-            favoriteVideos,
-            toggleFavoriteItem,
-            (index) => {
-                currentVideoIndex = index;
-                showLightbox(
-                    favoriteVideos[index],
-                    index,
-                    favoriteVideos,
-                    isMuted,
-                    isVideoFavorited,
-                    toggleFavoriteItem
-                );
-            },
-            isVideoFavorited
-        );
-    }
+    // Add to watch history
+    addToWatchHistory(video);
+    
+    // Get videos for navigation
+    const videos = showingFavorites ? 
+        allVideos.filter(v => isInCollection('favorites', v.id)) : 
+        allVideos;
+    
+    // Show lightbox
+    showLightbox(
+        video,
+        index,
+        videos,
+        isMuted,
+        (id) => isInCollection('favorites', id),
+        handleFavoriteToggle
+    );
+    
+    // Load related videos
+    loadRelatedVideos(video, selectVideo);
 }
 
 /**
@@ -584,6 +702,22 @@ async function loadMoreVideos() {
     isLoading = true;
     showLoading();
     
+    // If showing favorites, just render from storage
+    if (showingFavorites) {
+        const favoriteVideos = allVideos.filter(v => isInCollection('favorites', v.id));
+        
+        renderVideos(
+            favoriteVideos,
+            handleFavoriteToggle,
+            selectVideo,
+            (id) => isInCollection('favorites', id)
+        );
+        
+        isLoading = false;
+        hideLoading();
+        return;
+    }
+    
     fetchRedditVideos(
         activeSubreddits,
         currentSettings,
@@ -594,7 +728,13 @@ async function loadMoreVideos() {
             
             if (newVideos.length === 0) {
                 if (allVideos.length === 0) {
-                    document.getElementById('video-grid').innerHTML = '<div style="text-align: center; grid-column: 1/-1; padding: 40px;">No videos found. Try selecting different subreddits.</div>';
+                    document.getElementById('video-grid').innerHTML = `
+                        <div class="empty-state" style="grid-column: 1/-1; padding: 40px;">
+                            <div class="empty-icon">📹</div>
+                            <p>No videos found</p>
+                            <p class="empty-subtext">Try selecting different subreddits</p>
+                        </div>
+                    `;
                 }
                 isLoading = false;
                 hideLoading();
@@ -604,23 +744,16 @@ async function loadMoreVideos() {
             allVideos = [...allVideos, ...newVideos];
             renderVideos(
                 allVideos,
-                toggleFavoriteItem,
-                (index) => {
-                    currentVideoIndex = index;
-                    showLightbox(
-                        allVideos[index],
-                        index,
-                        allVideos,
-                        isMuted,
-                        isVideoFavorited,
-                        toggleFavoriteItem
-                    );
-                },
-                isVideoFavorited
+                handleFavoriteToggle,
+                selectVideo,
+                (id) => isInCollection('favorites', id)
             );
             
             isLoading = false;
             hideLoading();
+            
+            // Optimize memory
+            optimizeVideoMemory();
         },
         (error) => {
             showError(`Failed to load content: ${error.message}`);
@@ -645,9 +778,26 @@ async function loadMoreVideos() {
 function refreshContent() {
     afterToken = null;
     hasMore = true;
-    allVideos = [];
-    document.getElementById('video-grid').innerHTML = '';
-    loadMoreVideos();
+    
+    if (showingFavorites) {
+        // Just render favorites from storage
+        const favoriteVideos = allVideos.filter(v => isInCollection('favorites', v.id));
+        
+        renderVideos(
+            favoriteVideos,
+            handleFavoriteToggle,
+            selectVideo,
+            (id) => isInCollection('favorites', id)
+        );
+    } else {
+        // Clear current videos and load new ones
+        allVideos = [];
+        document.getElementById('video-grid').innerHTML = '';
+        loadMoreVideos();
+        
+        // Reconnect infinite scroll only when showing all videos
+        initObserver();
+    }
 }
 
 // Start the application when DOM is ready
@@ -656,9 +806,9 @@ document.addEventListener('DOMContentLoaded', initApp);
 // For exposing closeLightbox to global scope
 window.closeLightbox = closeLightbox;
 window.navigate = (direction) => {
-    const videos = showingFavorites ? favoriteVideos : allVideos;
-    navigate(direction, videos, isMuted, isVideoFavorited, toggleFavoriteItem);
+    const videos = showingFavorites ? 
+        allVideos.filter(v => isInCollection('favorites', v.id)) : 
+        allVideos;
+    
+    navigate(direction, videos, isMuted, (id) => isInCollection('favorites', id), handleFavoriteToggle);
 };
-
-// For the default button that's using onclick in HTML
-window.loadDefaultSubreddits = loadDefaultSubreddits;

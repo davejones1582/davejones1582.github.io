@@ -1,5 +1,5 @@
 /**
- * api.js - Functions for fetching data from Reddit API
+ * api.js - Enhanced Reddit API client with advanced caching
  */
 
 // Configuration
@@ -10,8 +10,12 @@ const DEFAULT_SUBREDDITS = [
     'deepintoyoutube',
     'TikTokCringe',
     'perfectlycutscreams',
-    'contagiouslaughter'        
+    'contagiouslaughter'
 ];
+
+// Cache control
+const API_CACHE_TIME = 15 * 60 * 1000; // 15 minutes in milliseconds
+const apiCache = new Map();
 
 /**
  * Convert RedGifs URLs to embeddable format
@@ -26,7 +30,60 @@ function getRedgifsEmbedUrl(url, muted = true) {
 }
 
 /**
- * Fetch videos from Reddit
+ * Fetch with timeout and retry logic
+ * 
+ * @param {string} url - URL to fetch
+ * @param {Object} options - Fetch options
+ * @param {number} timeout - Timeout in milliseconds
+ * @param {number} retries - Number of retries
+ * @returns {Promise<Response>} - Fetch response
+ */
+async function fetchWithRetry(url, options = {}, timeout = 10000, retries = 2) {
+    // Create abort controller for timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+        const response = await fetch(url, {
+            ...options,
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        return response;
+    } catch (error) {
+        clearTimeout(timeoutId);
+        
+        // If we have retries left and it's a timeout or network error, retry
+        if (retries > 0 && (error.name === 'AbortError' || error.message.includes('Failed to fetch'))) {
+            console.log(`Retrying fetch to ${url}, ${retries} attempts left`);
+            // Exponential backoff
+            await new Promise(r => setTimeout(r, 1000 * (3 - retries)));
+            return fetchWithRetry(url, options, timeout, retries - 1);
+        }
+        
+        throw error;
+    }
+}
+
+/**
+ * Check if cached result is still valid
+ * 
+ * @param {Object} cachedResult - Cached result with timestamp
+ * @returns {boolean} - Whether cache is valid
+ */
+function isCacheValid(cachedResult) {
+    if (!cachedResult) return false;
+    return (Date.now() - cachedResult.timestamp) < API_CACHE_TIME;
+}
+
+/**
+ * Fetch videos from Reddit with improved caching and error handling
  * 
  * @param {Array} activeSubreddits - List of active subreddits
  * @param {Object} settings - Current settings
@@ -41,6 +98,22 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
     }
 
     try {
+        // Create cache key from parameters
+        const cacheKey = JSON.stringify({
+            subs: activeSubreddits.sort().join('+'),
+            sort: settings.sort,
+            time: settings.time,
+            after: afterToken
+        });
+        
+        // Check cache first
+        const cachedResult = apiCache.get(cacheKey);
+        if (isCacheValid(cachedResult)) {
+            console.log('Using cached Reddit results');
+            onSuccess(cachedResult.videos, cachedResult.after, cachedResult.hasMore);
+            return;
+        }
+        
         // Join subreddits with proper URL encoding for each
         const multiSub = activeSubreddits.map(sub => encodeURIComponent(sub)).join('+');
         const sort = settings.sort;
@@ -54,12 +127,7 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
         
         console.log("Fetching from URL:", url);
 
-        const response = await fetch(url);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}, statusText: ${response.statusText}`);
-        }
-
+        const response = await fetchWithRetry(url);
         const data = await response.json();
         
         // Validate response structure
@@ -119,10 +187,17 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
                     videoUrl = data.url;
                 }
                 
-                // Get thumbnail
+                // Get thumbnail - use higher res when available
                 let thumbnailUrl;
                 if (data.preview && data.preview.images && data.preview.images[0]) {
-                    thumbnailUrl = data.preview.images[0].source.url.replace(/&amp;/g, '&');
+                    // Try to get the highest quality preview without being too large
+                    const previews = data.preview.images[0].resolutions || [];
+                    const mediumPreview = previews.find(p => p.width >= 640) || 
+                                         previews[previews.length - 1];
+                    
+                    thumbnailUrl = mediumPreview ? 
+                        mediumPreview.url.replace(/&amp;/g, '&') : 
+                        data.preview.images[0].source.url.replace(/&amp;/g, '&');
                 } else if (data.thumbnail && data.thumbnail !== 'self' && data.thumbnail !== 'default') {
                     thumbnailUrl = data.thumbnail;
                 } else {
@@ -144,14 +219,31 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
                     url: videoUrl,
                     thumbnail: thumbnailUrl,
                     upvotes: data.ups,
+                    comments: data.num_comments,
                     created: new Date(data.created_utc * 1000).toLocaleDateString(),
                     isVideo: true, // All are treated as "video" for the purpose of the lightbox
                     isReddit: isRedditVideo,
                     fallbackUrl: isRedditVideo ? data.media.reddit_video.fallback_url : null,
                     audioUrl: audioUrl,
-                    permalink: data.permalink
+                    permalink: data.permalink,
+                    author: data.author
                 };
             });
+
+        // Store results in cache
+        apiCache.set(cacheKey, {
+            videos: newVideos,
+            after: newAfterToken,
+            hasMore,
+            timestamp: Date.now()
+        });
+        
+        // Limit cache size
+        if (apiCache.size > 50) {
+            // Delete oldest entries
+            const keys = [...apiCache.keys()];
+            keys.slice(0, 10).forEach(key => apiCache.delete(key));
+        }
 
         onSuccess(newVideos, newAfterToken, hasMore);
     } catch (error) {
@@ -167,12 +259,20 @@ async function fetchRedditVideos(activeSubreddits, settings, afterToken, onSucce
  * @returns {Promise<Object>} - Subreddit information
  */
 async function fetchSubredditInfo(subreddit) {
+    // Check cache first
+    const cacheKey = `subreddit_info_${subreddit.toLowerCase()}`;
+    const cachedInfo = apiCache.get(cacheKey);
+    
+    if (isCacheValid(cachedInfo)) {
+        return cachedInfo.data;
+    }
+    
     try {
         const url = `https://corsproxy.io/?${encodeURIComponent(
             `https://www.reddit.com/r/${subreddit}/about.json`
         )}`;
         
-        const response = await fetch(url);
+        const response = await fetchWithRetry(url);
         
         // Handle specific error cases
         if (response.status === 404) {
@@ -207,14 +307,23 @@ async function fetchSubredditInfo(subreddit) {
             throw new Error('Invalid response format');
         }
         
-        return { 
+        const subredditInfo = { 
             name: subreddit, 
             subscribers: data.data.subscribers || 0,
             exists: true,
             title: data.data.title || '',
             description: data.data.public_description || '',
-            nsfw: data.data.over18 || false
+            nsfw: data.data.over18 || false,
+            iconUrl: data.data.icon_img || data.data.community_icon || null
         };
+        
+        // Cache the result
+        apiCache.set(cacheKey, {
+            data: subredditInfo,
+            timestamp: Date.now()
+        });
+        
+        return subredditInfo;
     } catch (error) {
         console.error(`Error fetching subreddit info for ${subreddit}:`, error);
         
@@ -251,6 +360,9 @@ async function validateAndAddSubreddit(subreddit, onSuccess, onError) {
     
     try {
         // Show loading indicator
+        const showLoading = window.showLoading || (() => {});
+        const hideLoading = window.hideLoading || (() => {});
+        
         showLoading();
         
         const info = await fetchSubredditInfo(cleanSubreddit);
@@ -283,10 +395,19 @@ async function validateAndAddSubreddit(subreddit, onSuccess, onError) {
     }
 }
 
+/**
+ * Clear API cache
+ */
+function clearApiCache() {
+    apiCache.clear();
+    console.log('API cache cleared');
+}
+
 export { 
     DEFAULT_SUBREDDITS, 
     fetchRedditVideos,
     fetchSubredditInfo,
     getRedgifsEmbedUrl,
     validateAndAddSubreddit,
+    clearApiCache
 };
