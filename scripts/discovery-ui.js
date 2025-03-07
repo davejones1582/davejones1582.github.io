@@ -11,98 +11,6 @@ import { addToWatchHistory } from './content-manager.js';
 import { formatCount } from './ui.js';
 
 /**
- * Initialize discovery sections
- * 
- * @param {Function} onVideoSelect - Callback when a video is selected
- */
-async function initDiscovery(onVideoSelect) {
-    try {
-        // Initialize trending section
-        const trendingContainer = document.getElementById('trending-carousel');
-        const categoryTabs = document.getElementById('category-tabs');
-        
-        if (trendingContainer && categoryTabs) {
-            // Set initial loading state
-            trendingContainer.innerHTML = `
-                <div class="carousel-loading">
-                    <div class="video-loading-spinner"></div>
-                    <div style="margin-top: 12px;">Loading trending content...</div>
-                </div>
-            `;
-            
-            // Load initial trending videos
-            const trendingVideos = await getTrendingVideos(null, 10);
-            renderCarousel(trendingContainer, trendingVideos, onVideoSelect);
-            
-            // Add event listeners to category tabs
-            categoryTabs.querySelectorAll('.category-tab').forEach(tab => {
-                tab.addEventListener('click', async () => {
-                    // Update active state
-                    categoryTabs.querySelectorAll('.category-tab').forEach(t => {
-                        t.classList.remove('active');
-                    });
-                    tab.classList.add('active');
-                    
-                    // Show loading state
-                    trendingContainer.innerHTML = `
-                        <div class="carousel-loading">
-                            <div class="video-loading-spinner"></div>
-                            <div style="margin-top: 12px;">Loading ${tab.textContent} content...</div>
-                        </div>
-                    `;
-                    
-                    // Load videos for the selected category
-                    const category = tab.dataset.category === 'all' ? null : tab.dataset.category;
-                    const videos = await getTrendingVideos(category, 10);
-                    renderCarousel(trendingContainer, videos, onVideoSelect);
-                });
-            });
-        }
-        
-        // Initialize recommendations section
-        const recommendationsContainer = document.getElementById('recommendations-carousel');
-        
-        if (recommendationsContainer) {
-            // Set initial loading state
-            recommendationsContainer.innerHTML = `
-                <div class="carousel-loading">
-                    <div class="video-loading-spinner"></div>
-                    <div style="margin-top: 12px;">Finding recommendations...</div>
-                </div>
-            `;
-            
-            // Load recommendations
-            const recommendedVideos = await getRecommendations(10);
-            
-            if (recommendedVideos.length === 0) {
-                recommendationsContainer.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-icon">🔍</div>
-                        <p>No recommendations yet</p>
-                        <p class="empty-subtext">Watch some videos to get personalized recommendations</p>
-                    </div>
-                `;
-            } else {
-                renderCarousel(recommendationsContainer, recommendedVideos, onVideoSelect);
-            }
-        }
-    } catch (error) {
-        console.error('Error initializing discovery sections:', error);
-        // Show error message in trending section
-        const trendingContainer = document.getElementById('trending-carousel');
-        if (trendingContainer) {
-            trendingContainer.innerHTML = `
-                <div class="empty-state">
-                    <div class="empty-icon">⚠️</div>
-                    <p>Failed to load trending content</p>
-                    <p class="empty-subtext">Please try again later</p>
-                </div>
-            `;
-        }
-    }
-}
-
-/**
  * Render videos in a carousel
  * 
  * @param {HTMLElement} container - Carousel container
@@ -350,7 +258,6 @@ function addRelatedVideosStyles() {
 }
 
 export {
-    initDiscovery,
     loadRelatedVideos,
     addRelatedVideosStyles
 };

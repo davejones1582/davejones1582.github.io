@@ -27,7 +27,6 @@ import {
     createWatchHistoryUI
 } from './profile-ui.js';
 import {
-    initDiscovery, 
     loadRelatedVideos,
     addRelatedVideosStyles
 } from './discovery-ui.js';
@@ -144,14 +143,6 @@ function initializeApp() {
     const videoGrid = document.getElementById('video-grid');
     if (videoGrid && currentSettings.compactView) {
         videoGrid.classList.add('compact');
-    }
-    
-    // Initialize discovery sections if enabled
-    if (currentSettings.showDiscovery) {
-        initDiscovery(selectVideo);
-    } else {
-        document.getElementById('trending-section').style.display = 'none';
-        document.getElementById('recommendations-section').style.display = 'none';
     }
     
     // Initialize sidebar
